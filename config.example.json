@@ -1,0 +1,25 @@
+{
+  "baseUrl": "https://xlanv.net/api/v1",
+  "apiSecret": "在此填入你在 xlanv.net 绑定的 api_secret",
+  "mode": "semi-auto",
+  "confirmTimeoutSeconds": 20,
+  "actions": {
+    "retweet": true,
+    "reply": true,
+    "like": true
+  },
+  "timing": {
+    "dwellMinMs": 5000,
+    "dwellMaxMs": 12000,
+    "intervalMinMs": 60000,
+    "intervalMaxMs": 180000,
+    "recommendFollowIntervalMs": 3600000,
+    "highPriorityProbability": 0.1
+  },
+  "humanReply": {
+    "stripTrailingPunctuation": true,
+    "forbidEmDash": true,
+    "extraSpacesMin": 1,
+    "extraSpacesMax": 3
+  }
+}
