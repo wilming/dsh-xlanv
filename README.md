@@ -136,7 +136,7 @@ dsh plugin --profile web add .
 
 #### 方式 A：通过 GitHub 仓库安装
 ```bash
-dsh plugin --profile web add https://github.com/omdsh-dev/dsh-xlanv
+dsh plugin --profile web add https://github.com/wilming/dsh-xlanv
 ```
 
 #### 方式 B：本地目录安装

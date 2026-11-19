@@ -16,6 +16,11 @@
     "xlanv",
     "x-automation"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wilming/dsh-xlanv.git"
+  },
+  "author": "914689349@qq.com",
   "license": "MIT",
   "dsh": {
     "bundle": {
