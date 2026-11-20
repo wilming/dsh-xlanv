@@ -24,6 +24,7 @@
   "license": "MIT",
   "dsh": {
     "bundle": {
+      "patch": "./cordis.patch.yml",
       "name": "dsh-xlanv",
       "displayName": "XLANV X蓝V互助助手",
       "type": "browser-automation",
