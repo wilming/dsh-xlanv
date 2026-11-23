@@ -12,7 +12,7 @@
     "deepseek-harness",
     "dsh",
     "dsh-plugin",
-    "dsh-browser-crossplatform",
+    "dsh-browser-x",
     "xlanv",
     "x-automation"
   ],
@@ -29,7 +29,7 @@
       "displayName": "XLANV X蓝V互助助手",
       "type": "browser-automation",
       "requires": [
-        "https://github.com/youbaiyun/dsh-browser-crossplatform"
+        "https://github.com/wilming/dsh-browser-x"
       ],
       "permissions": [
         "net",

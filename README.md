@@ -56,30 +56,30 @@ dsh-xlanv/
 
 ## 三、 安装与使用步骤（详细新手指南）
 
-### 第 1 步：安装并配置 `dsh-browser-crossplatform` 浏览器服务（详细指南）
+### 第 1 步：安装并配置 `dsh-browser-x` 浏览器服务（详细指南）
 
-> **💡 为什么要单独安装 `dsh-browser-crossplatform`？**  
-> `dsh-browser-crossplatform` 是跨平台的 DeepSeek Harness 浏览器基础设施插件（仓库地址：https://github.com/youbaiyun/dsh-browser-crossplatform ）。它负责提供**防风控指纹伪装（Canvas/UserAgent/WebGL）、网络代理分流、以及推特 X 账号的持久化 Cookie 存储**。所有对推特的操作都在用户原生的指纹浏览器中运行，杜绝新起裸奔浏览器导致的异地封号风险。
+> **💡 为什么要单独安装 `dsh-browser-x`？**  
+> `dsh-browser-x` 是专用的 DeepSeek Harness 浏览器基础设施插件（仓库地址：https://github.com/wilming/dsh-browser-x ）。它负责提供**防风控指纹伪装（Canvas/UserAgent/WebGL）、网络代理分流、以及推特 X 账号的持久化 Cookie 存储**。所有对推特的操作都在用户原生的指纹浏览器中运行，杜绝新起裸奔浏览器导致的异地封号风险。
 
 #### 1. 前置环境要求
 - **Node.js**：版本 `>= 18.0.0`（推荐 LTS 20.x），终端输入 `node -v` 验证；
 - **本地科学上网代理**：推特在国内无法直连，需确保 Clash / Clash Verge / v2ray 等客户端已开启本地代理端口（如 `http://127.0.0.1:7890` 或 `http://127.0.0.1:10809`）；
 - **已安装 DeepSeek Harness (DSH)**：终端输入 `dsh --version` 验证。
 
-#### 2. 安装 `dsh-browser-crossplatform` 插件
+#### 2. 安装 `dsh-browser-x` 插件
 请在终端中根据你的场景任选一种方式安装：
 
 ##### 方式 A：通过 GitHub 仓库直接安装（推荐）
-在终端中执行以下命令，将 `dsh-browser-crossplatform` 安装到你的 `web` Profile 运行环境中：
+在终端中执行以下命令，将 `dsh-browser-x` 安装到你的 `web` Profile 运行环境中：
 ```bash
-dsh plugin --profile web add https://github.com/youbaiyun/dsh-browser-crossplatform
+dsh plugin --profile web add https://github.com/wilming/dsh-browser-x
 ```
 
 ##### 方式 B：本地源码编译安装（开发者常用）
 ```bash
 # 1. 克隆代码仓库
-git clone https://github.com/youbaiyun/dsh-browser-crossplatform.git
-cd dsh-browser-crossplatform
+git clone https://github.com/wilming/dsh-browser-x.git
+cd dsh-browser-x
 
 # 2. 安装依赖
 npm install

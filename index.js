@@ -9,7 +9,7 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
 
 /**
  * DeepSeek Harness (Cordis) 插件标准入口
- * 在 DSH 中安装后会自动注入可选的 browser (dsh-browser-crossplatform) 与 llm 服务
+ * 在 DSH 中安装后会自动注入可选的 browser (dsh-browser-x) 与 llm 服务
  */
 export const name = 'dsh-xlanv'
 export const inject = {
@@ -31,8 +31,8 @@ export function apply(ctx, pluginConfig = {}) {
     if (!ctx.browser) {
       console.warn('====================================================================')
       console.warn('⚠️ [dsh-xlanv] 提示：未检测到 ctx.browser 服务。')
-      console.warn('👉 如需浏览器自动化支持，请确认已安装并启用 dsh-browser-crossplatform：')
-      console.warn('     dsh plugin --profile web add https://github.com/youbaiyun/dsh-browser-crossplatform')
+      console.warn('👉 如需浏览器自动化支持，请确认已安装并启用 dsh-browser-x：')
+      console.warn('     dsh plugin --profile web add https://github.com/wilming/dsh-browser-x')
       console.warn('👉 详细图文指引请参考本插件说明书: README.md')
       console.warn('====================================================================')
     }
