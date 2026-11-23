@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import z from '@deepseek-ai/schemastery'
 import { loadConfig } from './src/config.js'
 import { XlanvClient } from './src/api/xlanvClient.js'
 import { DshBrowserToolAdapter } from './src/browser/dshToolsAdapter.js'
@@ -14,11 +15,7 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
  */
 export const name = 'XLANV 蓝V互助设置'
 
-const schemasteryMod = await import('@deepseek-ai/schemastery').catch(() => null)
-const z = schemasteryMod?.default || schemasteryMod
-
-export const Config = z
-  ? z.object({
+export const Config = z.object({
       apiSecret: z
         .string()
         .default('')
@@ -114,7 +111,6 @@ export const Config = z
         .default(true)
         .description('允许自动点赞已推广推文（+1 积分）。')
     })
-  : undefined
 
 export function apply(ctx, pluginConfig = {}) {
   const config = loadConfig(pluginConfig)

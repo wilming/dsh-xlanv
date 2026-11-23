@@ -1,6 +1,6 @@
 {
   "name": "dsh-xlanv",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "xlanv.net (X 蓝V互助平台) 官方 DeepSeek Harness (dsh) 24小时拟人化自动化插件",
   "main": "index.js",
   "type": "module",
@@ -22,13 +22,8 @@
   },
   "author": "914689349@qq.com",
   "license": "MIT",
-  "peerDependencies": {
+  "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.4"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/schemastery": {
-      "optional": true
-    }
   },
   "dsh": {
     "bundle": {
