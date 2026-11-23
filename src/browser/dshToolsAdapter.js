@@ -26,13 +26,48 @@ export function parseSnapshotItems(snapshotText = '') {
 }
 
 /**
+ * 解析 browser_list_tabs 返回的 JSON（可能包裹在 <UNTRUSTED_PAGE_CONTENT> 中）
+ */
+export function parseTabsList(tabsText = '') {
+  const raw = String(tabsText || '')
+  const jsonStart = raw.indexOf('{')
+  const jsonEnd = raw.lastIndexOf('}')
+  if (jsonStart !== -1 && jsonEnd > jsonStart) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1))
+      if (Array.isArray(parsed?.tabs)) {
+        return parsed.tabs
+      }
+    } catch {
+      // 回退到按行解析
+    }
+  }
+  return []
+}
+
+/**
  * 解析 browser_list_tabs 返回的标签页列表，查找 x.com / twitter.com 的 tabId
+ * 优先复用已在受控中或当前激活的 X 标签页，确保全部操作在同一个页面完成
  */
 export function findXTabId(tabsText = '') {
+  const tabs = parseTabsList(tabsText)
+  if (tabs.length > 0) {
+    const xTabs = tabs.filter((t) =>
+      /(?:https?:\/\/)?(?:www\.)?(?:x\.com|twitter\.com)\b/i.test(String(t?.url || ''))
+    )
+    if (xTabs.length > 0) {
+      const preferred = xTabs.find((t) => t.controlled) || xTabs.find((t) => t.active) || xTabs[0]
+      if (typeof preferred?.tabId === 'number') {
+        return preferred.tabId
+      }
+    }
+  }
+
+  // 兜底按行匹配
   const lines = String(tabsText).split('\n')
   for (const line of lines) {
     if (!/(?:https?:\/\/)?(?:www\.)?(?:x\.com|twitter\.com)\b/i.test(line)) continue
-    const idMatch = line.match(/(?:tabId[:=\s]+|^\[?)(\d+)\b/i)
+    const idMatch = line.match(/(?:tabId[:=\s"]+|^\[?)(\d+)\b/i)
     if (idMatch) return Number(idMatch[1])
   }
   return null
@@ -72,23 +107,34 @@ export class DshBrowserToolAdapter {
   }
 
   async ensureXTab(defaultUrl = 'https://x.com/home') {
+    const tabsText = await this.callTool('browser_list_tabs', {})
+    const tabs = parseTabsList(tabsText)
+
+    // 1. 如果此前锁定的标签页依然存在，直接复用它（绝不新开标签页）
     if (this.attachedTabId !== null) {
-      try {
-        await this.callTool('browser_follow_tab', { tabId: this.attachedTabId })
+      const stillOpen = tabs.find((t) => t.tabId === this.attachedTabId)
+      if (stillOpen) {
+        if (!stillOpen.controlled) {
+          await this.callTool('browser_follow_tab', { tabId: this.attachedTabId })
+        }
         return this.attachedTabId
-      } catch {
-        this.attachedTabId = null
       }
+      this.attachedTabId = null
     }
 
-    const tabsText = await this.callTool('browser_list_tabs', {})
+    // 2. 查找浏览器里已有的任意 X / Twitter 标签页并锁定它
     const existingTabId = findXTabId(tabsText)
     if (existingTabId !== null) {
-      await this.callTool('browser_follow_tab', { tabId: existingTabId })
+      const targetTab = tabs.find((t) => t.tabId === existingTabId)
+      if (!targetTab?.controlled) {
+        await this.callTool('browser_follow_tab', { tabId: existingTabId })
+      }
       this.attachedTabId = existingTabId
       return existingTabId
     }
 
+    // 3. 只有当浏览器里完全没有 X 标签页时，才打开唯一一个新标签页；
+    // 若已打开过且列表仍为空，直接复用当前受控页或导航过去，绝不重复开新标签页
     await this.callTool('browser_open_tab', { url: defaultUrl, active: true })
     await this.callTool('browser_wait', { ms: 3000 })
 
