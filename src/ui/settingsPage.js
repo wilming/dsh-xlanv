@@ -394,3 +394,60 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
     }
   })
 }
+
+/**
+ * 注入到 DSH Web UI 的侧边悬浮按钮与抽屉式设置面板脚本（严格不包含 </script ）
+ */
+export function buildDshUiInjectScript() {
+  return `(function(){
+    if (window.__dshXlanvUiMounted) return;
+    window.__dshXlanvUiMounted = true;
+    function mount() {
+      if (!document.body || document.getElementById('dsh-xlanv-fab')) return;
+      var fab = document.createElement('button');
+      fab.id = 'dsh-xlanv-fab';
+      fab.type = 'button';
+      fab.textContent = 'XLANV 互助设置';
+      fab.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:99998;padding:8px 14px;border-radius:999px;border:1px solid rgba(29,155,240,0.4);background:#0f172a;color:#38bdf8;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(15,23,42,0.22);font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;';
+
+      var drawer = document.createElement('div');
+      drawer.id = 'dsh-xlanv-drawer';
+      drawer.style.cssText = 'position:fixed;top:0;right:0;width:min(860px,95vw);height:100vh;z-index:99999;background:#fff;box-shadow:-8px 0 32px rgba(15,23,42,0.25);display:none;flex-direction:column;';
+
+      var bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#0f172a;color:#fff;font-size:13px;font-weight:700;';
+      var title = document.createElement('span');
+      title.textContent = 'XLANV 蓝V互助插件 · 设置中心';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.textContent = '关闭 ✕';
+      closeBtn.style.cssText = 'border:1px solid #334155;background:#1e293b;color:#e2e8f0;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;';
+
+      var frame = document.createElement('iframe');
+      frame.src = '/xlanv';
+      frame.style.cssText = 'flex:1;width:100%;border:none;background:#f1f5f9;';
+
+      bar.appendChild(title);
+      bar.appendChild(closeBtn);
+      drawer.appendChild(bar);
+      drawer.appendChild(frame);
+
+      fab.onclick = function() {
+        var open = drawer.style.display === 'flex';
+        drawer.style.display = open ? 'none' : 'flex';
+        if (!open) frame.src = '/xlanv';
+      };
+      closeBtn.onclick = function() {
+        drawer.style.display = 'none';
+      };
+
+      document.body.appendChild(fab);
+      document.body.appendChild(drawer);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', mount);
+    } else {
+      mount();
+    }
+  })();`
+}

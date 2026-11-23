@@ -4,7 +4,7 @@ import { isValidApiSecret, loadConfig } from './src/config.js'
 import { XlanvClient } from './src/api/xlanvClient.js'
 import { DshBrowserToolAdapter } from './src/browser/dshToolsAdapter.js'
 import { XAutomationRunner } from './src/browser/xAutomation.js'
-import { registerSettingsRoutes } from './src/ui/settingsPage.js'
+import { buildDshUiInjectScript, registerSettingsRoutes } from './src/ui/settingsPage.js'
 
 export { deAiTone, generateHumanReply } from './src/humanizer/replyGenerator.js'
 export { XlanvClient } from './src/api/xlanvClient.js'
@@ -140,6 +140,15 @@ export function apply(ctx, pluginConfig = {}) {
   ctx.inject(['llm'], (llmCtx) => {
     runner.llm = llmCtx.llm
     console.log('[dsh-xlanv] 已成功挂载 llm 服务')
+  })
+
+  // 注入到 DSH Web 界面侧边/左下角，点击即可在 DSH 界面内直接打开设置抽屉
+  ctx.on('webserver/index-inject', (table) => {
+    table.push({
+      kind: 'script',
+      placement: 'body',
+      text: buildDshUiInjectScript()
+    })
   })
 
   // 在 DSH 内置 webServer 上注册专属设置页面 /xlanv
