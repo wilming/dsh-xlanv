@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { isValidApiSecret, saveConfig } from '../config.js'
+import { getDataDir, isValidApiSecret, saveConfig } from '../config.js'
 import { generateHumanReply } from '../humanizer/replyGenerator.js'
 import { confirmBeforeInteract, promptForApiSecret } from '../ui/confirmModal.js'
 
@@ -15,7 +15,7 @@ export class XAutomationRunner {
     this.config = config
     this.running = false
     this.lastFollowSyncAt = 0
-    this.dataDir = path.resolve(process.cwd(), 'data')
+    this.dataDir = getDataDir()
     this.followedCachePath = path.join(this.dataDir, 'followed_cache.json')
     this.followedMap = new Map()
   }
@@ -75,9 +75,17 @@ export class XAutomationRunner {
       if (!this.running) break
       if (this.followedMap.has(member.x_user_id)) continue
 
-      if (this.browser && typeof this.browser.followUser === 'function') {
-        await this.browser.followUser(member.x_username)
+      if (!this.browser || typeof this.browser.followUser !== 'function') {
+        console.warn('[dsh-xlanv] 浏览器适配器未就绪，跳过关注上报（绝不虚报）')
+        break
       }
+
+      const followed = await this.browser.followUser(member.x_username)
+      if (!followed) {
+        console.log(`[dsh-xlanv] 未能在页面完成关注 @${member.x_username}，跳过积分上报`)
+        continue
+      }
+
       await this.client.reportFollow(member.x_user_id, member.x_username)
       this.followedMap.set(member.x_user_id, member)
       this.saveLocalFollowed()
@@ -126,22 +134,27 @@ export class XAutomationRunner {
       replyText = confirmRes.replyText || replyText
     }
 
-    // 3. 通过 dsh-browser 在页面执行真实点赞 / 转发 / 逐字输入回复
-    let replyTweetId = ''
-    if (this.browser && typeof this.browser.interactTweet === 'function') {
-      const execRes = await this.browser.interactTweet({
-        tweetId: post.tweet_id,
-        actions: plannedActions,
-        replyText
-      })
-      replyTweetId = execRes?.replyTweetId || ''
-    } else if (plannedActions.includes('REPLY')) {
-      // 仅当浏览器适配器未返回真实 replyTweetId 时提示警告
-      console.warn('[dsh-xlanv] 警告：未检测到 dsh-browser 返回 replyTweetId，跳过 REPLY 上报')
+    // 3. 必须通过真实浏览器执行点赞 / 转发 / 逐字输入回复，严禁未执行就上报
+    if (!this.browser || typeof this.browser.interactTweet !== 'function') {
+      console.warn('[dsh-xlanv] 浏览器适配器未就绪，跳过推文互动与积分上报（绝不虚报）')
+      return
     }
 
-    const finalActions = plannedActions.filter((a) => a !== 'REPLY' || Boolean(replyTweetId))
-    if (finalActions.length === 0) return
+    const execRes = await this.browser.interactTweet({
+      tweetId: post.tweet_id,
+      actions: plannedActions,
+      replyText
+    })
+    const replyTweetId = execRes?.replyTweetId || ''
+    const executedSet = new Set(Array.isArray(execRes?.executedActions) ? execRes.executedActions : [])
+
+    const finalActions = plannedActions.filter(
+      (a) => executedSet.has(a) && (a !== 'REPLY' || Boolean(replyTweetId))
+    )
+    if (finalActions.length === 0) {
+      console.log(`[dsh-xlanv] 推文 ${post.tweet_id} 未完成有效页面互动，跳过上报`)
+      return
+    }
 
     // 4. 上报互动结果并完成零和积分结算
     const reportRes = await this.client.reportInteraction({

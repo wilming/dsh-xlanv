@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 export const PLACEHOLDER_SECRET = '在此填入你在 xlanv.net 绑定的 api_secret'
@@ -6,6 +7,18 @@ export const PLACEHOLDER_SECRET = '在此填入你在 xlanv.net 绑定的 api_se
 export function isValidApiSecret(secret) {
   const s = String(secret || '').trim()
   return s.length > 0 && s !== PLACEHOLDER_SECRET
+}
+
+/**
+ * 统一使用 ~/.dsh/xlanv 作为持久化配置与缓存目录，避免依赖不可预测的 process.cwd()
+ */
+export function getDataDir() {
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+  return path.join(dshHome, 'xlanv')
+}
+
+export function getConfigPath() {
+  return path.join(getDataDir(), 'config.json')
 }
 
 const DEFAULT_CONFIG = {
@@ -40,7 +53,10 @@ const DEFAULT_CONFIG = {
 
 export function loadConfig(overrides = {}) {
   let fileCfg = {}
-  const cfgPath = path.resolve(process.cwd(), 'config.json')
+  const primaryPath = getConfigPath()
+  const fallbackCwdPath = path.resolve(process.cwd(), 'config.json')
+  const cfgPath = fs.existsSync(primaryPath) ? primaryPath : fallbackCwdPath
+
   if (fs.existsSync(cfgPath)) {
     try {
       fileCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'))
@@ -104,6 +120,11 @@ export function loadConfig(overrides = {}) {
 }
 
 export function saveConfig(config) {
-  const cfgPath = path.resolve(process.cwd(), 'config.json')
+  const dir = getDataDir()
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  const cfgPath = getConfigPath()
   fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), 'utf-8')
+  return cfgPath
 }

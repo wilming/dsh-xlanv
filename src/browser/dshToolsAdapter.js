@@ -201,6 +201,7 @@ export class DshBrowserToolAdapter {
     }
 
     let replyTweetId = ''
+    const executedActions = []
 
     if (actions.includes('RETWEET')) {
       const items = parseSnapshotItems(snapshot)
@@ -224,6 +225,7 @@ export class DshBrowserToolAdapter {
         if (confirmRepost) {
           await this.callTool('browser_click', { index: confirmRepost.index })
           await sleep(1000)
+          executedActions.push('RETWEET')
           snapshot = await this.callTool('browser_snapshot', {})
         }
       }
@@ -241,6 +243,7 @@ export class DshBrowserToolAdapter {
       if (likeBtn) {
         await this.callTool('browser_click', { index: likeBtn.index })
         await sleep(800)
+        executedActions.push('LIKE')
         snapshot = await this.callTool('browser_snapshot', {})
       }
     }
@@ -300,11 +303,12 @@ export class DshBrowserToolAdapter {
             .filter((id) => id && id !== String(tweetId))
           if (statusMatches.length > 0) {
             replyTweetId = statusMatches[statusMatches.length - 1]
+            executedActions.push('REPLY')
           }
         }
       }
     }
 
-    return { replyTweetId }
+    return { executedActions, replyTweetId }
   }
 }

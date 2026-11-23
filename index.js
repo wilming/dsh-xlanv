@@ -1,9 +1,10 @@
 import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
-import { loadConfig } from './src/config.js'
+import { isValidApiSecret, loadConfig } from './src/config.js'
 import { XlanvClient } from './src/api/xlanvClient.js'
 import { DshBrowserToolAdapter } from './src/browser/dshToolsAdapter.js'
 import { XAutomationRunner } from './src/browser/xAutomation.js'
+import { registerSettingsRoutes } from './src/ui/settingsPage.js'
 
 export { deAiTone, generateHumanReply } from './src/humanizer/replyGenerator.js'
 export { XlanvClient } from './src/api/xlanvClient.js'
@@ -141,6 +142,33 @@ export function apply(ctx, pluginConfig = {}) {
     console.log('[dsh-xlanv] 已成功挂载 llm 服务')
   })
 
+  // 在 DSH 内置 webServer 上注册专属设置页面 /xlanv
+  let disposeSettingsRoute = null
+  ctx.inject(['webServer'], (wsCtx) => {
+    disposeSettingsRoute = registerSettingsRoutes(wsCtx.webServer, {
+      runner,
+      client,
+      onConfigUpdated: (nextCfg) => {
+        if (nextCfg.enabled === false) {
+          if (runner.running) runner.stop()
+          return
+        }
+        if (isValidApiSecret(nextCfg.apiSecret) && !runner.running) {
+          runner.start().catch((err) => {
+            console.error('[dsh-xlanv] 热更新启动失败:', err.message)
+          })
+        }
+      }
+    })
+    const host = wsCtx.webServer.host || '127.0.0.1'
+    const port = wsCtx.webServer.port
+    if (port) {
+      console.log(`[dsh-xlanv] 可视化设置页面已就绪: http://${host}:${port}/xlanv`)
+    } else {
+      console.log('[dsh-xlanv] 可视化设置页面已挂载到 /xlanv 路由')
+    }
+  })
+
   ctx.on('ready', () => {
     if (!runner.browser) {
       console.warn('====================================================================')
@@ -156,6 +184,10 @@ export function apply(ctx, pluginConfig = {}) {
   })
 
   ctx.on('dispose', () => {
+    if (typeof disposeSettingsRoute === 'function') {
+      disposeSettingsRoute()
+      disposeSettingsRoute = null
+    }
     runner.stop()
   })
 }
