@@ -81,6 +81,10 @@ export async function promptForApiSecret(browser, siteUrl = 'https://xlanv.net')
     }
   }
 
+  if (!process.stdin.isTTY) {
+    throw new Error(`尚未配置有效的 api_secret，请前往 ${siteUrl} 获取后填入 config.json 或插件配置`)
+  }
+
   const rl = readline.createInterface({ input, output })
   try {
     console.log(`\n[dsh-xlanv] 检测到尚未配置有效的 api_secret。`)

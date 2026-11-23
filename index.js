@@ -9,13 +9,9 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
 
 /**
  * DeepSeek Harness (Cordis) 插件标准入口
- * 在 DSH 中安装后会自动注入可选的 browser (dsh-browser-x) 与 llm 服务
+ * 不强制阻塞等待 browser 服务，避免因服务名差异导致插件一直处于 pending 状态
  */
 export const name = 'dsh-xlanv'
-export const inject = {
-  browser: { required: false },
-  llm: { required: false }
-}
 
 export function apply(ctx, pluginConfig = {}) {
   const config = loadConfig(pluginConfig)
@@ -28,7 +24,14 @@ export function apply(ctx, pluginConfig = {}) {
   })
 
   ctx.on('ready', () => {
-    if (!ctx.browser) {
+    if (!runner.browser && ctx.browser) {
+      runner.browser = ctx.browser
+    }
+    if (!runner.llm && ctx.llm) {
+      runner.llm = ctx.llm
+    }
+
+    if (!runner.browser) {
       console.warn('====================================================================')
       console.warn('⚠️ [dsh-xlanv] 提示：未检测到 ctx.browser 服务。')
       console.warn('👉 如需浏览器自动化支持，请确认已安装并启用 dsh-browser-x：')
