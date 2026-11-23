@@ -9,7 +9,7 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
 
 /**
  * DeepSeek Harness (Cordis) 插件标准入口
- * 不强制阻塞等待 browser 服务，避免因服务名差异导致插件一直处于 pending 状态
+ * 使用 ctx.inject 动态注入可选服务，既不触发 Cordis 未注入访问报错，也不阻塞插件激活
  */
 export const name = 'dsh-xlanv'
 
@@ -18,25 +18,28 @@ export function apply(ctx, pluginConfig = {}) {
   const client = new XlanvClient(config.baseUrl, config.apiSecret)
   const runner = new XAutomationRunner({
     client,
-    browser: ctx.browser || null,
-    llm: ctx.llm || null,
+    browser: null,
+    llm: null,
     config
   })
 
-  ctx.on('ready', () => {
-    if (!runner.browser && ctx.browser) {
-      runner.browser = ctx.browser
-    }
-    if (!runner.llm && ctx.llm) {
-      runner.llm = ctx.llm
-    }
+  // 动态注入可选服务：当服务就绪时自动挂载到 runner，不阻塞主插件启动
+  ctx.inject(['browser'], (browserCtx) => {
+    runner.browser = browserCtx.browser
+    console.log('[dsh-xlanv] 已成功挂载 browser 浏览器服务')
+  })
 
+  ctx.inject(['llm'], (llmCtx) => {
+    runner.llm = llmCtx.llm
+    console.log('[dsh-xlanv] 已成功挂载 llm 服务')
+  })
+
+  ctx.on('ready', () => {
     if (!runner.browser) {
       console.warn('====================================================================')
-      console.warn('⚠️ [dsh-xlanv] 提示：未检测到 ctx.browser 服务。')
+      console.warn('⚠️ [dsh-xlanv] 提示：当前尚未挂载 ctx.browser 服务。')
       console.warn('👉 如需浏览器自动化支持，请确认已安装并启用 dsh-browser-x：')
       console.warn('     dsh plugin --profile web add https://github.com/wilming/dsh-browser-x')
-      console.warn('👉 详细图文指引请参考本插件说明书: README.md')
       console.warn('====================================================================')
     }
 
