@@ -9,12 +9,12 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
 
 /**
  * DeepSeek Harness (Cordis) 插件标准入口
- * 在 DSH 中安装后会自动注入 browser (dsh-browser) 与 llm 服务
+ * 在 DSH 中安装后会自动注入可选的 browser (dsh-browser-crossplatform) 与 llm 服务
  */
 export const name = 'dsh-xlanv'
 export const inject = {
-  required: ['browser'],
-  optional: ['llm']
+  browser: { required: false },
+  llm: { required: false }
 }
 
 export function apply(ctx, pluginConfig = {}) {
@@ -22,21 +22,19 @@ export function apply(ctx, pluginConfig = {}) {
   const client = new XlanvClient(config.baseUrl, config.apiSecret)
   const runner = new XAutomationRunner({
     client,
-    browser: ctx.browser,
+    browser: ctx.browser || null,
     llm: ctx.llm || null,
     config
   })
 
   ctx.on('ready', () => {
     if (!ctx.browser) {
-      console.error('====================================================================')
-      console.error('❌ [dsh-xlanv] 错误：未检测到可用的 dsh-browser 浏览器服务！')
-      console.error('👉 本插件依赖 dsh-browser 提供指纹浏览器及推特登录态维持。')
-      console.error('👉 解决方法：请在终端中执行以下命令安装并启用浏览器助手：')
-      console.error('     dsh plugin --profile web add dsh-browser')
-      console.error('👉 详细图文指引请参考本插件说明书: README.md')
-      console.error('====================================================================')
-      return
+      console.warn('====================================================================')
+      console.warn('⚠️ [dsh-xlanv] 提示：未检测到 ctx.browser 服务。')
+      console.warn('👉 如需浏览器自动化支持，请确认已安装并启用 dsh-browser-crossplatform：')
+      console.warn('     dsh plugin --profile web add https://github.com/youbaiyun/dsh-browser-crossplatform')
+      console.warn('👉 详细图文指引请参考本插件说明书: README.md')
+      console.warn('====================================================================')
     }
 
     runner.start().catch((err) => {

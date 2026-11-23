@@ -2,12 +2,12 @@
 set -e
 
 echo "============================================================"
-echo "[XLANV] 正在为 DSH Web 环境一键安装 dsh-browser 和 dsh-xlanv 插件..."
+echo "[XLANV] 正在为 DSH Web 环境一键安装 dsh-browser-crossplatform 和 dsh-xlanv 插件..."
 echo "============================================================"
 echo ""
 
-echo "[1/3] 正在安装 dsh-browser 浏览器基础设施插件..."
-dsh plugin --profile web add dsh-browser || dsh plugin --profile web add https://github.com/omdsh-dev/dsh-browser
+echo "[1/3] 正在安装 dsh-browser-crossplatform 浏览器基础设施插件..."
+dsh plugin --profile web add https://github.com/youbaiyun/dsh-browser-crossplatform
 
 echo ""
 echo "[2/3] 正在检查并补齐 Chromium 浏览器内核..."
