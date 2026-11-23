@@ -160,7 +160,27 @@ export class XAutomationRunner {
     await sleep(waitMs)
   }
 
+  isWithinActiveHours() {
+    const start = Number(this.config.activeStartHour ?? 0)
+    const end = Number(this.config.activeEndHour ?? 24)
+    if (start === 0 && end === 24) return true
+    if (start === end) return true
+
+    const hour = new Date().getHours()
+    if (start < end) {
+      return hour >= start && hour < end
+    }
+    // 支持跨午夜时段（如 22 点到次日 6 点）
+    return hour >= start || hour < end
+  }
+
   async runOnce() {
+    if (this.config.enabled === false) {
+      return
+    }
+    if (!this.isWithinActiveHours()) {
+      return
+    }
     await this.ensureFollowedSynced()
     await this.runRecommendFollowCycle()
 
@@ -211,6 +231,10 @@ export class XAutomationRunner {
   }
 
   async start() {
+    if (this.config.enabled === false) {
+      console.log('[dsh-xlanv] 插件自动托管开关已关闭（enabled=false），待命不执行任务')
+      return
+    }
     if (!isValidApiSecret(this.config.apiSecret)) {
       const secret = await promptForApiSecret(this.browser, 'https://xlanv.net')
       this.config.apiSecret = secret
@@ -227,7 +251,8 @@ export class XAutomationRunner {
       } catch (err) {
         console.error('[dsh-xlanv] 本轮巡检异常:', err.message)
       }
-      await sleep(15000)
+      const pollMs = Math.max(5, Number(this.config.loopPollIntervalSeconds || 15)) * 1000
+      await sleep(pollMs)
     }
   }
 

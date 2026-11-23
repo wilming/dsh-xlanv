@@ -11,7 +11,109 @@ export { XAutomationRunner } from './src/browser/xAutomation.js'
  * DeepSeek Harness (Cordis) 插件标准入口
  * 使用 ctx.inject 动态注入可选服务，既不触发 Cordis 未注入访问报错，也不阻塞插件激活
  */
-export const name = 'dsh-xlanv'
+export const name = 'XLANV 蓝V互助设置'
+
+const schemasteryMod = await import('@deepseek-ai/schemastery').catch(() => null)
+const z = schemasteryMod?.default || schemasteryMod
+
+export const Config = z
+  ? z.object({
+      apiSecret: z
+        .string()
+        .default('')
+        .description('xlanv.net 平台密钥（api_secret）。请在官网绑定 X 用户名后复制填入此处。'),
+      baseUrl: z
+        .string()
+        .default('https://xlanv.net/api/v1')
+        .description('xlanv.net 后端接口地址，一般保持默认即可。'),
+      enabled: z
+        .boolean()
+        .default(true)
+        .description('是否开启自动互助任务总开关。关闭后插件保持待命，不执行任何互动。'),
+      mode: z
+        .union([
+          z.const('semi-auto').description('半自动（互动前弹窗倒计时人工确认，超时自动执行）'),
+          z.const('auto').description('全自动托管（无确认弹窗，按拟人节奏自动执行）')
+        ])
+        .default('semi-auto')
+        .description('托管模式：半自动确认 或 全自动托管。'),
+      confirmTimeoutSeconds: z
+        .number()
+        .step(1)
+        .min(5)
+        .max(120)
+        .default(20)
+        .description('半自动模式下的人工确认倒计时时间（秒），超时未操作将自动发送。'),
+      activeStartHour: z
+        .number()
+        .step(1)
+        .min(0)
+        .max(23)
+        .default(0)
+        .description('每日自动运行开始时间（0~23点）。设为 0~24 表示全天 24 小时运行。'),
+      activeEndHour: z
+        .number()
+        .step(1)
+        .min(1)
+        .max(24)
+        .default(24)
+        .description('每日自动运行结束时间（1~24点）。支持跨午夜，例如 22 到 6。'),
+      intervalMinSeconds: z
+        .number()
+        .step(1)
+        .min(10)
+        .max(3600)
+        .default(60)
+        .description('每条推文互动后的最小随机休息间隔（秒）。'),
+      intervalMaxSeconds: z
+        .number()
+        .step(1)
+        .min(10)
+        .max(3600)
+        .default(180)
+        .description('每条推文互动后的最大随机休息间隔（秒）。'),
+      dwellMinSeconds: z
+        .number()
+        .step(1)
+        .min(1)
+        .max(60)
+        .default(5)
+        .description('浏览单条推文时的最小拟人停留时长（秒）。'),
+      dwellMaxSeconds: z
+        .number()
+        .step(1)
+        .min(1)
+        .max(60)
+        .default(12)
+        .description('浏览单条推文时的最大拟人停留时长（秒）。'),
+      recommendFollowIntervalMinutes: z
+        .number()
+        .step(1)
+        .min(10)
+        .max(1440)
+        .default(60)
+        .description('自动拉取推荐关注列表的周期（分钟），默认 60 分钟。'),
+      loopPollIntervalSeconds: z
+        .number()
+        .step(1)
+        .min(5)
+        .max(600)
+        .default(15)
+        .description('主巡检循环的轮询检查间隔（秒）。'),
+      enableRetweet: z
+        .boolean()
+        .default(true)
+        .description('允许自动转发已推广推文（+3 积分）。'),
+      enableReply: z
+        .boolean()
+        .default(true)
+        .description('允许自动发送去 AI 味拟人评论（+2 积分）。'),
+      enableLike: z
+        .boolean()
+        .default(true)
+        .description('允许自动点赞已推广推文（+1 积分）。')
+    })
+  : undefined
 
 export function apply(ctx, pluginConfig = {}) {
   const config = loadConfig(pluginConfig)

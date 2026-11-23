@@ -9,10 +9,14 @@ export function isValidApiSecret(secret) {
 }
 
 const DEFAULT_CONFIG = {
+  enabled: true,
   baseUrl: 'https://xlanv.net/api/v1',
   apiSecret: '',
   mode: 'semi-auto', // 'semi-auto' (20s弹窗确认) | 'auto'
   confirmTimeoutSeconds: 20,
+  activeStartHour: 0,
+  activeEndHour: 24,
+  loopPollIntervalSeconds: 15,
   actions: {
     retweet: true,
     reply: true,
@@ -45,25 +49,51 @@ export function loadConfig(overrides = {}) {
     }
   }
 
+  const cleanOverrides = { ...overrides }
+  if (!isValidApiSecret(cleanOverrides.apiSecret)) {
+    delete cleanOverrides.apiSecret
+  }
+
   const merged = {
     ...DEFAULT_CONFIG,
     ...fileCfg,
-    ...overrides,
+    ...cleanOverrides,
     actions: {
       ...DEFAULT_CONFIG.actions,
       ...(fileCfg.actions || {}),
-      ...(overrides.actions || {})
+      ...(cleanOverrides.actions || {})
     },
     timing: {
       ...DEFAULT_CONFIG.timing,
       ...(fileCfg.timing || {}),
-      ...(overrides.timing || {})
+      ...(cleanOverrides.timing || {})
     },
     humanReply: {
       ...DEFAULT_CONFIG.humanReply,
       ...(fileCfg.humanReply || {}),
-      ...(overrides.humanReply || {})
+      ...(cleanOverrides.humanReply || {})
     }
+  }
+
+  // 兼容 DSH 界面扁平化参数映射
+  if (typeof cleanOverrides.enableRetweet === 'boolean') merged.actions.retweet = cleanOverrides.enableRetweet
+  if (typeof cleanOverrides.enableReply === 'boolean') merged.actions.reply = cleanOverrides.enableReply
+  if (typeof cleanOverrides.enableLike === 'boolean') merged.actions.like = cleanOverrides.enableLike
+
+  if (typeof cleanOverrides.dwellMinSeconds === 'number') {
+    merged.timing.dwellMinMs = Math.max(1, cleanOverrides.dwellMinSeconds) * 1000
+  }
+  if (typeof cleanOverrides.dwellMaxSeconds === 'number') {
+    merged.timing.dwellMaxMs = Math.max(merged.timing.dwellMinMs, cleanOverrides.dwellMaxSeconds * 1000)
+  }
+  if (typeof cleanOverrides.intervalMinSeconds === 'number') {
+    merged.timing.intervalMinMs = Math.max(5, cleanOverrides.intervalMinSeconds) * 1000
+  }
+  if (typeof cleanOverrides.intervalMaxSeconds === 'number') {
+    merged.timing.intervalMaxMs = Math.max(merged.timing.intervalMinMs, cleanOverrides.intervalMaxSeconds * 1000)
+  }
+  if (typeof cleanOverrides.recommendFollowIntervalMinutes === 'number') {
+    merged.timing.recommendFollowIntervalMs = Math.max(5, cleanOverrides.recommendFollowIntervalMinutes) * 60 * 1000
   }
 
   if (process.env.XLANV_BASE_URL) merged.baseUrl = process.env.XLANV_BASE_URL
