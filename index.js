@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { loadConfig } from './src/config.js'
 import { XlanvClient } from './src/api/xlanvClient.js'
+import { DshBrowserToolAdapter } from './src/browser/dshToolsAdapter.js'
 import { XAutomationRunner } from './src/browser/xAutomation.js'
 
 export { deAiTone, generateHumanReply } from './src/humanizer/replyGenerator.js'
@@ -125,7 +126,15 @@ export function apply(ctx, pluginConfig = {}) {
     config
   })
 
-  // 动态注入可选服务：当服务就绪时自动挂载到 runner，不阻塞主插件启动
+  // 动态注入 dsh-browser-x 注册在 ctx.tools 上的 browser_* 工具适配器
+  ctx.inject(['tools'], (toolsCtx) => {
+    if (!runner.browser) {
+      runner.browser = new DshBrowserToolAdapter(toolsCtx.tools)
+      console.log('[dsh-xlanv] 已成功挂载 dsh-browser-x (browser_*) 工具适配器')
+    }
+  })
+
+  // 兼容传统 ctx.browser 服务
   ctx.inject(['browser'], (browserCtx) => {
     runner.browser = browserCtx.browser
     console.log('[dsh-xlanv] 已成功挂载 browser 浏览器服务')
