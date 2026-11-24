@@ -477,36 +477,51 @@ export class DshBrowserToolAdapter {
           await humanPause(1500, 2800)
           await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
           try {
-            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 7000 })
+            await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 7000 })
           } catch {
             await humanPause(1800, 3000)
           }
-          await humanPause(800, 1600)
+          await humanPause(700, 1400)
 
           let raw = ''
-          try {
-            raw = await this.callTool('browser_get_text', {
-              selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]'
-            })
-          } catch {
+          const selectors = [
+            'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
+            'article[data-testid="tweet"] [data-testid="tweetText"]',
+            '[data-testid="twitterArticleRichTextView"]',
+            '[data-testid="tweetText"]'
+          ]
+          for (const sel of selectors) {
             try {
-              raw = await this.callTool('browser_get_text', {
-                selector: 'article[data-testid="tweet"] [data-testid="tweetText"]'
-              })
+              const txt = await this.callTool('browser_get_text', { selector: sel })
+              const cleaned = unwrapUntrustedText(txt)
+              if (cleaned) {
+                raw = cleaned
+                break
+              }
             } catch {
-              raw = ''
+              // 尝试下一个选择器
             }
           }
-          content = unwrapUntrustedText(raw).slice(0, 180)
-          if (!content) {
-            content = '(纯媒体/转发无文字推文)'
-          }
 
+          let snap = ''
           try {
-            const snap = await this.callTool('browser_snapshot', { region: 'main' })
+            snap = await this.callTool('browser_snapshot', { region: 'main' })
             metrics = parseTweetMetricsFromItems(parseSnapshotItems(snap))
           } catch {
-            // 忽略计数抓取异常
+            // 忽略快照异常
+          }
+
+          // 若 CSS 选择器均未命中，从 main 快照正文兜底提取
+          if (!raw && snap) {
+            const snippets = extractTweetSnippetsFromMain(snap, cleanUser)
+            if (snippets.length > 0 && snippets[0]) {
+              raw = snippets[0]
+            }
+          }
+
+          content = raw.slice(0, 180)
+          if (!content) {
+            content = '(无文字内容)'
           }
         } catch {
           content = ''

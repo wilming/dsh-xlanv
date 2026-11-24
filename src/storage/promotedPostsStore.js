@@ -96,6 +96,8 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
       existing.content = prevText
       const isPollutedOrTimestamp =
         !prevText ||
+        prevText === '(纯媒体/转发无文字推文)' ||
+        prevText === '(无文字内容)' ||
         /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(prevText) ||
         /@[A-Za-z0-9_]+\s*·\s*(?:\d+[smhd]|\d+\s*(?:hour|minute|second|day))/i.test(prevText)
       if (t.content && (isPollutedOrTimestamp || prevText.length < 10)) {

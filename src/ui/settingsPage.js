@@ -843,6 +843,8 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
               const txt = String(p?.content || '').trim()
               const bad =
                 !txt ||
+                txt === '(纯媒体/转发无文字推文)' ||
+                txt === '(无文字内容)' ||
                 /Security:\s*Enclosed page content/i.test(txt) ||
                 /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(txt) ||
                 /@[A-Za-z0-9_]+\s*·/i.test(txt)
