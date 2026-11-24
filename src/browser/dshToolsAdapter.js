@@ -494,12 +494,12 @@ export class DshBrowserToolAdapter {
           seenGlobal.add(tweetId)
           feedCount++
 
-          if (typeof onTweetSeen === 'function') {
+            if (typeof onTweetSeen === 'function') {
             const didInteract = await onTweetSeen({
               tweetId,
               authorXId: authorUsername,
               authorUsername,
-              content: isTimestampLabel(item.name) ? '' : (item.name || '')
+              content: ''
             })
             if (didInteract) {
               await ensureOnHome(false)
@@ -658,7 +658,8 @@ export class DshBrowserToolAdapter {
   }
 
   /**
-   * 通过 CSS 选择器精确提取推文正文纯文本，彻底避开时间戳、图片、视频与引用块
+   * 通过 CSS 选择器精确提取推文正文纯文本，彻底避开时间戳、图片、视频与引用块，
+   * 若正文字数过少则补充抓取聚焦推文卡片内的文字上下文，确保大模型拿到足够信息
    */
   async getTweetText(tweetId) {
     const tabId = await this.ensureXTab('https://x.com/home')
@@ -667,21 +668,37 @@ export class DshBrowserToolAdapter {
     const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
     if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      await humanPause(2000, 3400)
-    }
-    try {
-      const raw = await this.callTool('browser_get_text', {
-        selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]'
-      })
-      return unwrapUntrustedText(raw)
-    } catch {
       try {
-        const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
-        return unwrapUntrustedText(raw)
+        await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 7000 })
       } catch {
-        return ''
+        await humanPause(1800, 3000)
+      }
+      await humanPause(700, 1400)
+    }
+
+    const selectors = [
+      'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
+      'article[data-testid="tweet"] [data-testid="tweetText"]',
+      '[data-testid="twitterArticleRichTextView"]',
+      '[data-testid="tweetText"]',
+      'article[data-testid="tweet"][tabindex="-1"]'
+    ]
+
+    let bestText = ''
+    for (const sel of selectors) {
+      try {
+        const raw = await this.callTool('browser_get_text', { selector: sel })
+        const cleaned = unwrapUntrustedText(raw)
+        if (cleaned && cleaned.length > bestText.length) {
+          bestText = cleaned
+          if (bestText.length >= 15) break
+        }
+      } catch {
+        // 尝试下一个选择器
       }
     }
+
+    return bestText.slice(0, 350)
   }
 
   async interactTweet({ tweetId, actions = [], replyText = '' }) {

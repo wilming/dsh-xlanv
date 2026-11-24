@@ -133,7 +133,7 @@ function buildFallbackHumanReply(postContent) {
 /**
  * 仅提取帖子纯文字核心内容：过滤图片、视频标记、链接、引用块与长文截断，最大程度节省 Token
  */
-export function extractPurePostText(rawContent, maxLen = 180) {
+export function extractPurePostText(rawContent, maxLen = 350) {
   let text = String(rawContent || '')
   // 1. 移除 dsh-browser-x 图片标记、常见媒体占位符与媒体短链
   text = text
@@ -196,7 +196,7 @@ async function callDshLlm(llm, systemPrompt, userPrompt) {
  */
 export async function generateHumanReply(postContent, llm = null, options = {}) {
   let raw = ''
-  const compactContent = extractPurePostText(postContent, 180)
+  const compactContent = extractPurePostText(postContent, 350)
 
   if (llm && (typeof llm.stream === 'function' || typeof llm.chat === 'function')) {
     const customPrompt = String(options.customPrompt || '').trim().slice(0, 1000)
