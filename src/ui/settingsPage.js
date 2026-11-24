@@ -589,7 +589,8 @@ function buildSettingsHtml() {
                 <span class="post-id">ID: \${p.tweet_id}</span>
               </div>
               <div class="hint" style="margin:0;">
-                已获: 回复 \${p.current_replies || 0}/\${p.target_replies || 20} · 转发 \${p.current_retweets || 0} · 点赞 \${p.current_likes || 0}
+                平台互助: 回复 \${p.current_replies || 0}/\${p.target_replies || 20} · 转发 \${p.current_retweets || 0} · 点赞 \${p.current_likes || 0}
+                \${(p.x_replies || p.x_retweets || p.x_likes) ? \` | X 实际: 回复 \${p.x_replies || 0} · 转发 \${p.x_retweets || 0} · 点赞 \${p.x_likes || 0}\` : ''}
               </div>
             </div>
             <div class="post-content">\${(p.content || '(无文本摘要)').replace(/</g, '&lt;')}</div>

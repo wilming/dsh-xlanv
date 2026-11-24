@@ -51,6 +51,24 @@ export function extractTweetSnippetsFromMain(snapshotText = '', username = '') {
   )
 }
 
+export function parseTweetMetricsFromItems(items = []) {
+  const metrics = { x_replies: 0, x_retweets: 0, x_likes: 0 }
+  for (const item of items) {
+    if (item.role !== 'button' && item.role !== 'link') continue
+    const name = String(item.name || '').trim()
+    const numMatch = name.match(/(\d[\d,]*)/)
+    const count = numMatch ? Number(numMatch[1].replace(/,/g, '')) : 0
+    if (/\b(Replies|Reply|回复)\b/i.test(name)) {
+      metrics.x_replies = Math.max(metrics.x_replies, count)
+    } else if (/\b(Reposts?|Retweets?|转帖|转推|转发)\b/i.test(name)) {
+      metrics.x_retweets = Math.max(metrics.x_retweets, count)
+    } else if (/\b(Likes?|喜欢|点赞)\b/i.test(name)) {
+      metrics.x_likes = Math.max(metrics.x_likes, count)
+    }
+  }
+  return metrics
+}
+
 /**
  * 解析 browser_snapshot 返回的文本，提取所有带编号的交互元素
  * 格式示例：  [12] button "Follow" → /user/status/123
@@ -453,6 +471,7 @@ export class DshBrowserToolAdapter {
     const results = []
     for (const tweetId of tweetIds.slice(0, limit)) {
       let content = existingContentMap.get(tweetId) || ''
+      let metrics = { x_replies: 0, x_retweets: 0, x_likes: 0 }
       if (!content) {
         try {
           await humanPause(1500, 2800)
@@ -482,6 +501,13 @@ export class DshBrowserToolAdapter {
           if (!content) {
             content = '(纯媒体/转发无文字推文)'
           }
+
+          try {
+            const snap = await this.callTool('browser_snapshot', { region: 'main' })
+            metrics = parseTweetMetricsFromItems(parseSnapshotItems(snap))
+          } catch {
+            // 忽略计数抓取异常
+          }
         } catch {
           content = ''
         }
@@ -490,6 +516,7 @@ export class DshBrowserToolAdapter {
         tweetId,
         authorUsername: cleanUser,
         content,
+        ...metrics,
         url: `https://x.com/${cleanUser}/status/${tweetId}`
       })
     }

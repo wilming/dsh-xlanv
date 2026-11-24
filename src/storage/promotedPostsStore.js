@@ -103,6 +103,9 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
       } else if (isPollutedOrTimestamp && !t.content) {
         existing.content = ''
       }
+      if (typeof t.x_replies === 'number') existing.x_replies = t.x_replies
+      if (typeof t.x_retweets === 'number') existing.x_retweets = t.x_retweets
+      if (typeof t.x_likes === 'number') existing.x_likes = t.x_likes
       if (remote) {
         existing.is_uploaded = true
         existing.is_promoted = Boolean(remote.is_promoted)
@@ -132,6 +135,9 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
         current_replies: remote?.current_replies || 0,
         current_retweets: remote?.current_retweets || 0,
         current_likes: remote?.current_likes || 0,
+        x_replies: t.x_replies || 0,
+        x_retweets: t.x_retweets || 0,
+        x_likes: t.x_likes || 0,
         created_at: nowIso,
         updated_at: nowIso
       }
