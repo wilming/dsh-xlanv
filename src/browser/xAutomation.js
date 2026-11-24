@@ -285,13 +285,22 @@ export class XAutomationRunner {
       (a) => executedSet.has(a) && (a !== 'REPLY' || Boolean(replyTweetId))
     )
     if (finalActions.length === 0) {
-      activityLogger.append({
-        type: 'API_ERROR',
-        action: `推文 ${post.tweet_id} 未捕获有效互动结果，跳过后台上报`,
-        detail: plannedActions.includes('REPLY') && !replyTweetId
-          ? '未捕获到新评论的 reply_tweet_id（后台强制校验必填）'
-          : `计划动作: ${plannedActions.join(',')}`
-      })
+      const alreadyOnPage = Array.isArray(execRes?.alreadyDoneOnPage) ? execRes.alreadyDoneOnPage : []
+      if (alreadyOnPage.length > 0) {
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `推文 ${post.tweet_id} 在 X 页面已完成过 ${alreadyOnPage.join(',')}，已同步本地去重`,
+          detail: '不重复点击也不虚报积分，后续巡检将自动跳过'
+        })
+      } else {
+        activityLogger.append({
+          type: 'API_ERROR',
+          action: `推文 ${post.tweet_id} 未捕获有效互动结果，跳过后台上报`,
+          detail: plannedActions.includes('REPLY') && !replyTweetId
+            ? '未捕获到新评论的 reply_tweet_id（后台强制校验必填）'
+            : `计划动作: ${plannedActions.join(',')}`
+        })
+      }
       console.log(`[dsh-xlanv] 推文 ${post.tweet_id} 未完成有效页面互动，跳过上报`)
       return true
     }

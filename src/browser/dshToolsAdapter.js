@@ -842,6 +842,10 @@ export class DshBrowserToolAdapter {
             await humanPause(1800, 3200)
             executedActions.push('RETWEET')
           } else {
+            console.warn(
+              '[dsh-xlanv] 未匹配到转发确认菜单项，候选菜单元素:',
+              menuItems.map((i) => `${i.role}:"${i.name}"`).join(' | ')
+            )
             // 若未找到确认项，按 Escape 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
             try {
               await this.callTool('browser_press', { key: 'Escape' })
