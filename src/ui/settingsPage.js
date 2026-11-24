@@ -863,6 +863,7 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
                 txt === '(无文字内容)' ||
                 /Security:\s*Enclosed page content/i.test(txt) ||
                 /To view keyboard shortcuts|Skip to home timeline|Skip to trending/i.test(txt) ||
+                /(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*(?:\d{4}年\d{1,2}月\d{1,2}日|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4})/i.test(txt) ||
                 /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(txt) ||
                 /@[A-Za-z0-9_]+\s*·/i.test(txt)
               if (!bad) existingContentMap.set(String(p.tweet_id), txt)

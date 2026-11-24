@@ -99,6 +99,7 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
         prevText === '(纯媒体/转发无文字推文)' ||
         prevText === '(无文字内容)' ||
         /To view keyboard shortcuts|Skip to home timeline|Skip to trending/i.test(prevText) ||
+        /(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*(?:\d{4}年\d{1,2}月\d{1,2}日|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4})/i.test(prevText) ||
         /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(prevText) ||
         /@[A-Za-z0-9_]+\s*·\s*(?:\d+[smhd]|\d+\s*(?:hour|minute|second|day))/i.test(prevText)
       if (t.content && (isPollutedOrTimestamp || prevText.length < 10)) {

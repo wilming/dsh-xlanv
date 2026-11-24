@@ -131,7 +131,18 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
     filtered.push(line)
   }
 
-  const joined = unwrapUntrustedText(filtered.join(' '))
+  let joined = unwrapUntrustedText(filtered.join(' '))
+  // 剥离单行合并后残留的头部「昵称 @username」与尾部「时间 · 日期 · 查看数」
+  if (cleanUser) {
+    joined = joined.replace(new RegExp(`^.{0,80}?@${cleanUser}\\s+`, 'i'), '')
+  } else {
+    joined = joined.replace(/^.{0,80}?@[A-Za-z0-9_]+\s+/, '')
+  }
+  joined = joined
+    .replace(/(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日[\s\S]*$/i, '')
+    .replace(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
+    .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看)[\s\S]*$/i, '')
+    .trim()
   if (!joined || isPollutedChromeText(joined)) return ''
   return joined
 }
