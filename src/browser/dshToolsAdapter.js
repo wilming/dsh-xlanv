@@ -667,8 +667,9 @@ export class DshBrowserToolAdapter {
   }
 
   /**
-   * 通过 CSS 选择器精确提取推文正文纯文本，彻底避开时间戳、图片、视频与引用块，
-   * 若正文字数过少则补充抓取聚焦推文卡片内的文字上下文，确保大模型拿到足够信息
+   * 精确提取推文正文纯文本：
+   * 1. 若 X 自动翻译遮挡/替换了 tweetText，先尝试点击「显示原文 / Show original」还原原帖节点
+   * 2. 依次尝试 tweetText、div[lang]、长文节点与聚焦 article 全文，最后用 main 快照兜底
    */
   async getTweetText(tweetId) {
     const tabId = await this.ensureXTab('https://x.com/home')
@@ -678,16 +679,53 @@ export class DshBrowserToolAdapter {
     if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
       try {
-        await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 7000 })
+        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
       } catch {
-        await humanPause(1800, 3000)
+        await humanPause(2000, 3400)
       }
-      await humanPause(700, 1400)
+      await humanPause(900, 1600)
+    }
+
+    // 检查是否处于 X 自动翻译状态（存在 Show original / 显示原文 / 查看原文 按钮），有则点击还原原文
+    let focusedSnap = ''
+    try {
+      focusedSnap = await this.callTool('browser_snapshot', {
+        region: 'article[data-testid="tweet"][tabindex="-1"]'
+      })
+    } catch {
+      try {
+        focusedSnap = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
+      } catch {
+        focusedSnap = ''
+      }
+    }
+
+    if (focusedSnap) {
+      const focusedItems = parseSnapshotItems(focusedSnap)
+      const showOriginalBtn = focusedItems.find(
+        (item) =>
+          !item.disabled &&
+          (item.role === 'button' || item.role === 'link') &&
+          /^(Show original|View original|显示原文|查看原文|显示原帖)$/i.test(item.name.trim())
+      )
+      if (showOriginalBtn) {
+        try {
+          await this.callTool('browser_click', { index: showOriginalBtn.index })
+          await humanPause(1000, 1800)
+          focusedSnap = await this.callTool('browser_snapshot', {
+            region: 'article[data-testid="tweet"][tabindex="-1"]'
+          })
+        } catch {
+          // 忽略还原点击失败，继续多级选择器兜底读取
+        }
+      }
     }
 
     const selectors = [
       'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
+      'article[data-testid="tweet"][tabindex="-1"] div[lang]',
       'article[data-testid="tweet"] [data-testid="tweetText"]',
+      'article[data-testid="tweet"] div[lang]',
       '[data-testid="twitterArticleRichTextView"]',
       '[data-testid="tweetText"]',
       'article[data-testid="tweet"][tabindex="-1"]'
@@ -704,6 +742,15 @@ export class DshBrowserToolAdapter {
         }
       } catch {
         // 尝试下一个选择器
+      }
+    }
+
+    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 提取正文
+    if (!bestText && focusedSnap) {
+      const raw = unwrapUntrustedText(focusedSnap)
+      const m = raw.match(/(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\n(?:Changed )?(?:Interactive|Form|Images)|$)/i)
+      if (m && m[1]) {
+        bestText = unwrapUntrustedText(m[1])
       }
     }
 
