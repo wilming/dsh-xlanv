@@ -22,6 +22,29 @@ function unwrapUntrustedText(raw = '') {
 }
 
 /**
+ * 从 browser_snapshot 的 Main content 文本块中提取 @username · <时间> 之后的推文正文片段
+ */
+export function extractTweetSnippetsFromMain(snapshotText = '', username = '') {
+  const raw = unwrapUntrustedText(snapshotText)
+  const mainMatch = raw.match(/(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\n(?:Changed )?(?:Interactive|Form|Images)|$)/i)
+  const mainText = (mainMatch ? mainMatch[1] : raw).trim()
+  if (!mainText || !username) return []
+
+  const cleanUser = username.replace(/^@/, '')
+  const re = new RegExp(`@${cleanUser}\\s*·\\s*[^\\s]+\\s+`, 'gi')
+  const parts = mainText.split(re)
+  if (parts.length <= 1) return []
+
+  return parts.slice(1).map((seg) =>
+    seg
+      .replace(/⟦i\d+[^⟧]*⟧/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140)
+  )
+}
+
+/**
  * 解析 browser_snapshot 返回的文本，提取所有带编号的交互元素
  * 格式示例：  [12] button "Follow" → /user/status/123
  */
@@ -365,35 +388,46 @@ export class DshBrowserToolAdapter {
 
     await this.ensureXTab(`https://x.com/${cleanUser}`)
     await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
-    await this.callTool('browser_wait', { ms: 3000 })
+    try {
+      await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
+    } catch {
+      await this.callTool('browser_wait', { ms: 2500 })
+    }
 
     const tweetMap = new Map()
     const statusRe = new RegExp(
-      `(?:https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com)?\\/${cleanUser}\\/status\\/(\\d+)`,
+      `(?:https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com)?\\/${cleanUser}\\/status\\/(\\d+)(?:$|[?#])`,
       'i'
     )
 
     for (let round = 0; round < 3 && tweetMap.size < limit; round++) {
-      const snapshot = await this.callTool('browser_snapshot', {})
+      // 必须传 region: 'main'，避免左侧栏与右侧热搜占用 60 个元素额度
+      const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
       const items = parseSnapshotItems(snapshot)
+      const snippets = extractTweetSnippetsFromMain(snapshot, cleanUser)
+      let snippetIdx = 0
+
       for (const item of items) {
         if (!item.href) continue
         const m = item.href.match(statusRe)
         if (!m) continue
         const tweetId = m[1]
         if (!tweetMap.has(tweetId)) {
+          const itemName = isTimestampLabel(item.name) ? '' : (item.name || '')
+          const snippet = snippets[snippetIdx] || ''
+          snippetIdx++
           tweetMap.set(tweetId, {
             tweetId,
             authorUsername: cleanUser,
-            content: item.name || '',
+            content: itemName || snippet,
             url: `https://x.com/${cleanUser}/status/${tweetId}`
           })
           if (tweetMap.size >= limit) break
         }
       }
       if (tweetMap.size < limit && round < 2) {
-        await this.callTool('browser_scroll', { direction: 'down', amount: 650 })
-        await sleep(1000)
+        await this.callTool('browser_scroll', { direction: 'down', amount: 700 })
+        await sleep(1200)
       }
     }
 
