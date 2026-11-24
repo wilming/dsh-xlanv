@@ -716,11 +716,21 @@ export class DshBrowserToolAdapter {
     const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
     if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      await humanPause(2200, 3800)
+      try {
+        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"][tabindex="-1"]', ms: 7000 })
+      } catch {
+        await humanPause(2200, 3800)
+      }
+      await humanPause(1200, 2400)
     }
 
-    // 仅抓取 main 区域一次快照，减少 50%~70% 的快照 Token 消耗
-    const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+    // 严格只快照目标主帖 article[tabindex="-1"]，绝不误操作上方父帖或下方评论区按钮
+    let snapshot = ''
+    try {
+      snapshot = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"][tabindex="-1"]' })
+    } catch {
+      snapshot = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
+    }
     const baseItems = parseSnapshotItems(snapshot)
 
     let replyTweetId = ''
@@ -731,7 +741,7 @@ export class DshBrowserToolAdapter {
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
-          /\b(Repost|Retweet|转帖|转推|转发)\b/i.test(item.name) &&
+          /\b(Repost|Retweet)\b|转帖|轉帖|转推|转发/i.test(item.name) &&
           !/Undo|取消|已转/i.test(item.name)
       )
       if (repostBtn) {
@@ -739,18 +749,17 @@ export class DshBrowserToolAdapter {
         await this.callTool('browser_click', { index: repostBtn.index })
         await humanPause(1200, 2200)
 
-        // 直接只快照弹出的 [role="menu"] 区域，避免全页 60 元素上限把菜单项裁掉
         let menuSnap = ''
         try {
           menuSnap = await this.callTool('browser_snapshot', { region: '[role="menu"]' })
         } catch {
           menuSnap = await this.callTool('browser_snapshot', { delta: true })
         }
-        let menuItems = parseSnapshotItems(menuSnap)
+        const menuItems = parseSnapshotItems(menuSnap)
         let confirmRepost = menuItems.find(
           (item) =>
             (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
-            /^(Repost|Retweet|转帖|转发|转推)\b/i.test(item.name.trim()) &&
+            (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
             !/Quote|引用|Undo|取消/i.test(item.name)
         )
         if (!confirmRepost) {
@@ -758,7 +767,7 @@ export class DshBrowserToolAdapter {
           confirmRepost = parseSnapshotItems(deltaSnap).find(
             (item) =>
               (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
-              /^(Repost|Retweet|转帖|转发|转推)\b/i.test(item.name.trim()) &&
+              (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
               !/Quote|引用|Undo|取消/i.test(item.name)
           )
         }
@@ -767,17 +776,24 @@ export class DshBrowserToolAdapter {
           await this.callTool('browser_click', { index: confirmRepost.index })
           await humanPause(1800, 3200)
           executedActions.push('RETWEET')
+        } else {
+          // 若未找到确认项，按 Escape 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
+          try {
+            await this.callTool('browser_press', { key: 'Escape' })
+            await humanPause(600, 1200)
+          } catch {
+            // 忽略
+          }
         }
       }
     }
 
     if (actions.includes('LIKE')) {
-      // 直接复用初始快照的稳定元素索引，无需重复快照
       const likeBtn = baseItems.find(
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
-          /\b(Like|喜欢|点赞)\b/i.test(item.name) &&
+          /\b(Like)\b|喜欢|点赞/i.test(item.name) &&
           !/Unlike|Liked|取消|已喜欢/i.test(item.name)
       )
       if (likeBtn) {
@@ -789,37 +805,49 @@ export class DshBrowserToolAdapter {
     }
 
     if (actions.includes('REPLY') && replyText) {
-      let inputBox = baseItems.find(
+      // 点击目标主帖内部的 Reply 按钮打开专属回复弹窗，确保 100% 回复给主帖而非其他评论
+      const replyTrigger = baseItems.find(
         (item) =>
-          item.role === 'contenteditable' ||
-          item.role === 'textarea' ||
-          item.role === 'textbox'
+          !item.disabled &&
+          item.role === 'button' &&
+          (/\bReply\b|回复/i.test(item.name))
       )
-      let currentItems = baseItems
 
-      if (!inputBox) {
-        const replyTrigger = baseItems.find(
-          (item) =>
-            !item.disabled &&
-            item.role === 'button' &&
-            /\b(Reply|回复)\b/i.test(item.name)
-        )
-        if (replyTrigger) {
-          await this.callTool('browser_click', { index: replyTrigger.index })
-          await this.callTool('browser_wait', { ms: 900 })
+      let inputBox = null
+      let currentItems = []
+
+      if (replyTrigger) {
+        await humanPause(1200, 2200)
+        await this.callTool('browser_click', { index: replyTrigger.index })
+        await humanPause(1500, 2600)
+        try {
+          const dialogSnap = await this.callTool('browser_snapshot', { region: '[role="dialog"]' })
+          currentItems = parseSnapshotItems(dialogSnap)
+        } catch {
           const modalSnap = await this.callTool('browser_snapshot', { delta: true })
           currentItems = parseSnapshotItems(modalSnap)
-          inputBox = currentItems.find(
-            (item) =>
-              item.role === 'contenteditable' ||
-              item.role === 'textarea' ||
-              item.role === 'textbox'
-          )
         }
+        inputBox = currentItems.find(
+          (item) =>
+            item.role === 'contenteditable' ||
+            item.role === 'textarea' ||
+            item.role === 'textbox'
+        )
+      }
+
+      // 若弹窗方式未找到输入框，兜底查找 main 区域内联回复框
+      if (!inputBox) {
+        const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+        currentItems = parseSnapshotItems(mainSnap)
+        inputBox = currentItems.find(
+          (item) =>
+            item.role === 'contenteditable' ||
+            item.role === 'textarea' ||
+            item.role === 'textbox'
+        )
       }
 
       if (inputBox) {
-        // 记录提交前页面已有的 status IDs，用于提交后精准 diff 出新评论的 replyTweetId
         const preStatusIds = new Set(
           baseItems
             .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
@@ -832,38 +860,35 @@ export class DshBrowserToolAdapter {
           text: replyText,
           replace: false
         })
-        await sleep(700)
+        await humanPause(1000, 1800)
 
-        let submitBtn = currentItems.find(
-          (item) =>
-            !item.disabled &&
-            item.role === 'button' &&
-            /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
-        )
-        if (!submitBtn) {
-          const afterTypeSnap = await this.callTool('browser_snapshot', { delta: true })
-          submitBtn = parseSnapshotItems(afterTypeSnap).find(
+        const findSubmit = (list) =>
+          list.find(
             (item) =>
               !item.disabled &&
               item.role === 'button' &&
               /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
           )
+
+        let submitBtn = findSubmit(currentItems)
+        if (!submitBtn) {
+          try {
+            const dialogSnap = await this.callTool('browser_snapshot', { region: '[role="dialog"]' })
+            submitBtn = findSubmit(parseSnapshotItems(dialogSnap))
+          } catch {
+            // 忽略
+          }
         }
         if (!submitBtn) {
-          const fullMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
-          submitBtn = parseSnapshotItems(fullMainSnap).find(
-            (item) =>
-              !item.disabled &&
-              item.role === 'button' &&
-              /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
-          )
+          const afterTypeSnap = await this.callTool('browser_snapshot', { delta: true })
+          submitBtn = findSubmit(parseSnapshotItems(afterTypeSnap))
         }
 
         if (submitBtn) {
           await this.callTool('browser_click', { index: submitBtn.index })
-          await this.callTool('browser_wait', { ms: 2500 })
+          await humanPause(2600, 4200)
 
-          // 1. 不限制 region='main' 抓取增量快照，以捕获 X 底部 "Your post was sent -> View" 弹窗链接中的新 replyTweetId
+          // 1. 不限制 region 抓取增量快照，捕获底部 "Your post was sent -> View" 弹窗中的新 replyTweetId
           const toastDeltaSnap = await this.callTool('browser_snapshot', { delta: true })
           const toastIds = parseSnapshotItems(toastDeltaSnap)
             .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
@@ -872,8 +897,7 @@ export class DshBrowserToolAdapter {
           if (toastIds.length > 0) {
             replyTweetId = toastIds[toastIds.length - 1]
           } else {
-            // 2. 兜底再等 1.5s，拉取 main 区域对比 preStatusIds 找到新出现的评论推文 ID
-            await sleep(1500)
+            await humanPause(1500, 2500)
             const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
             const mainIds = parseSnapshotItems(mainSnap)
               .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
