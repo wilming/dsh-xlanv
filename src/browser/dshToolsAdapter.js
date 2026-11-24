@@ -104,14 +104,36 @@ export class DshBrowserToolAdapter {
   }
 
   async callTool(name, args = {}) {
-    if (!this.tools || typeof this.tools.execute !== 'function') {
+    if (!this.tools) {
       throw new Error('dsh-tools 服务未就绪')
     }
+
+    const signal = new AbortController().signal
+
+    // 优先通过 tools.get(name).execute 直接调用工具实现，绕过缺少 agent 上下文时的 Tool batch 调度报错
+    if (typeof this.tools.get === 'function') {
+      const tool = this.tools.get(name)
+      if (tool && typeof tool.execute === 'function') {
+        try {
+          const val = await tool.execute(args, { callId: randomUUID(), signal })
+          if (typeof val === 'string') return val
+          if (val && typeof val === 'object' && typeof val.text === 'string') return val.text
+          return JSON.stringify(val ?? '')
+        } catch (err) {
+          throw new Error(`[${name}] ${err?.message || String(err)}`)
+        }
+      }
+    }
+
+    if (typeof this.tools.execute !== 'function') {
+      throw new Error(`dsh-tools 未找到工具 ${name}`)
+    }
+
     const res = await this.tools.execute({
       callId: randomUUID(),
       name,
       arguments: args,
-      signal: new AbortController().signal
+      signal
     })
     if (res.isError) {
       const errMsg =
