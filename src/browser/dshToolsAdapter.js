@@ -311,13 +311,19 @@ export class DshBrowserToolAdapter {
     const maxItems = Math.min(20, Math.max(1, Number(limit || 20)))
     const tabId = await this.ensureXTab('https://x.com/home')
 
-    // 确认当前标签页处于 x.com/home
+    // 确认当前标签页处于 x.com/home：若已在 home 则主动刷新页面回到顶部，避免一直在底部旧帖下滑
     const tabsText = await this.callTool('browser_list_tabs', {})
     const tabs = parseTabsList(tabsText)
     const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
     const curUrl = String(activeTab?.url || '')
     if (!/x\.com\/home\b/i.test(curUrl) && !/twitter\.com\/home\b/i.test(curUrl)) {
       await this.callTool('browser_navigate', { url: 'https://x.com/home' })
+    } else {
+      await this.callTool('browser_reload', {})
+    }
+    try {
+      await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
+    } catch {
       await this.callTool('browser_wait', { ms: 2500 })
     }
 
