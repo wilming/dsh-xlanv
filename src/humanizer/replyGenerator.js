@@ -108,19 +108,38 @@ function buildFallbackHumanReply(postContent) {
 }
 
 /**
+ * 仅提取帖子纯文字核心内容：过滤图片、视频标记、链接、引用块与长文截断，最大程度节省 Token
+ */
+export function extractPurePostText(rawContent, maxLen = 180) {
+  let text = String(rawContent || '')
+  // 1. 移除 dsh-browser-x 图片标记、常见媒体占位符与媒体短链
+  text = text
+    .replace(/⟦i\d+[^⟧]*⟧/g, ' ')
+    .replace(/\[(?:img|image|video|media|gif|card|poll|图片|视频|动图|投票)[^\]]*\]/gi, ' ')
+    .replace(/(?:https?:\/\/)?(?:pic\.(?:x|twitter)\.com|t\.co)\/\S+/gi, ' ')
+    .replace(/https?:\/\/\S+/gi, ' ')
+  // 2. 截断引用推文与长文展开提示
+  text = text
+    .replace(/(?:\n|\s)(?:Quote|Quoted|引用推文|引用|查看引用)[\s\S]*$/i, '')
+    .replace(/(?:Show more|显示更多|Translate post|翻译帖子)/gi, ' ')
+  // 3. 合并空白并严格截断长度（不提交长文）
+  text = text.replace(/\s+/g, ' ').trim()
+  if (text.length > maxLen) {
+    text = text.slice(0, maxLen)
+  }
+  return text
+}
+
+/**
  * 结合原帖内容生成去 AI 味的拟人化评论
  * 若传入 DSH 的 llm.chat 接口则优先调用大模型 + 规则二次清洗
  */
 export async function generateHumanReply(postContent, llm = null, options = {}) {
   let raw = ''
+  const compactContent = extractPurePostText(postContent, 180)
 
   if (llm && typeof llm.chat === 'function') {
     const customPrompt = String(options.customPrompt || '').trim().slice(0, 1000)
-    const compactContent = String(postContent || '')
-      .replace(/https?:\/\/\S+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 220)
     const promptLines = [
       '你是真实X蓝V用户，结合原帖写12~35字口语短评（表达主观感受，禁破折号与AI套话，末尾无标点）：'
     ]
@@ -138,7 +157,7 @@ export async function generateHumanReply(postContent, llm = null, options = {}) 
   }
 
   if (!raw || !raw.trim()) {
-    raw = buildFallbackHumanReply(postContent)
+    raw = buildFallbackHumanReply(compactContent)
   }
 
   return deAiTone(raw, options)
