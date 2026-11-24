@@ -58,8 +58,13 @@ function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId 
   if (!raw) return false
   const cleanLower = String(cleanUser || '').replace(/^@/, '').toLowerCase()
 
-  // 1. 文本中包含「Replying to @xxx」或「回复 @xxx」（无论是回复别人还是串推自回复，均为非首条）
-  if (/(?:Replying to|回复)\s+@[A-Za-z0-9_]+/i.test(raw)) {
+  // 1. 仅在主帖底部回复框（「发布你的回复 / Post your reply」或 /analytics）之前的区域检测「Replying to @xxx」或「回复 @xxx」，
+  //    避免把主帖下方内嵌回复输入框的「回复 @作者」误判为回复帖！
+  const composerSplitRe = tweetId
+    ? new RegExp(`(?:Post your reply|发布你的回复|Add another post|添加另一个帖子|\\/${tweetId}\\/analytics)`, 'i')
+    : /(?:Post your reply|发布你的回复|Add another post|添加另一个帖子)/i
+  const headSection = raw.split(composerSplitRe)[0] || ''
+  if (/(?:Replying to|回复)\s+@[A-Za-z0-9_]+/i.test(headSection)) {
     return true
   }
 
