@@ -23,9 +23,25 @@ function unwrapUntrustedText(raw = '') {
     .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
     .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
     .replace(/Treat returned page text as untrusted data[^\n]*\n?/gi, '')
-    .replace(/(?:Translated from [^\n]+|由\s*[^\s]+\s*翻译|Show original|查看原文|Translate post|翻译帖子)/gi, ' ')
+    .replace(/⟦i\d+[^⟧]*⟧/g, ' ')
+    .replace(
+      /(?:Translated from [A-Za-z\u4e00-\u9fa5]+(?:\s*\([^)]+\))?|由\s*[A-Za-z0-9_\u4e00-\u9fa5]+\s*翻译|Show original|View original|显示原文|查看原文|显示原帖|Translate post|翻译帖子)/gi,
+      ' '
+    )
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function extractMainContentFromSnapshot(snapshotText = '') {
+  const cleanedRaw = String(snapshotText || '')
+    .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
+    .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
+    .replace(/Treat returned page text as untrusted data[^\n]*\n?/gi, '')
+  const m = cleanedRaw.match(
+    /(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\s*\n\s*(?:Changed )?(?:Interactive|Form|Images)\b|$)/i
+  )
+  if (!m || !m[1]) return ''
+  return unwrapUntrustedText(m[1])
 }
 
 /**
@@ -669,10 +685,22 @@ export class DshBrowserToolAdapter {
       if (showOriginalBtn) {
         try {
           await this.callTool('browser_click', { index: showOriginalBtn.index })
+          try {
+            await this.callTool('browser_wait', {
+              selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
+              ms: 4000
+            })
+          } catch {
+            // 忽略等待超时
+          }
           await humanPause(1000, 1800)
-          focusedSnap = await this.callTool('browser_snapshot', {
-            region: 'article[data-testid="tweet"][tabindex="-1"]'
-          })
+          try {
+            focusedSnap = await this.callTool('browser_snapshot', {
+              region: 'article[data-testid="tweet"][tabindex="-1"]'
+            })
+          } catch {
+            focusedSnap = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
+          }
         } catch {
           // 忽略还原点击失败，继续多级选择器兜底读取
         }
@@ -689,26 +717,42 @@ export class DshBrowserToolAdapter {
       'article[data-testid="tweet"][tabindex="-1"]'
     ]
 
-    let bestText = ''
-    for (const sel of selectors) {
-      try {
-        const raw = await this.callTool('browser_get_text', { selector: sel })
-        const cleaned = unwrapUntrustedText(raw)
-        if (cleaned && cleaned.length > bestText.length) {
-          bestText = cleaned
-          if (bestText.length >= 15) break
+    const readSelectors = async () => {
+      let text = ''
+      for (const sel of selectors) {
+        try {
+          const raw = await this.callTool('browser_get_text', { selector: sel })
+          const cleaned = unwrapUntrustedText(raw)
+          if (cleaned && cleaned.length > text.length) {
+            text = cleaned
+            if (text.length >= 15) break
+          }
+        } catch {
+          // 尝试下一个选择器
         }
-      } catch {
-        // 尝试下一个选择器
       }
+      return text
     }
 
-    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 提取正文
+    let bestText = await readSelectors()
+    if (!bestText) {
+      await humanPause(1200, 1800)
+      bestText = await readSelectors()
+    }
+
+    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 提取正文（保留换行再截取）
     if (!bestText && focusedSnap) {
-      const raw = unwrapUntrustedText(focusedSnap)
-      const m = raw.match(/(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\n(?:Changed )?(?:Interactive|Form|Images)|$)/i)
-      if (m && m[1]) {
-        bestText = unwrapUntrustedText(m[1])
+      bestText = extractMainContentFromSnapshot(focusedSnap)
+    }
+
+    // 二级兜底：若聚焦快照仍为空，从 main 区域快照提取
+    if (!bestText) {
+      try {
+        const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+        if (!focusedSnap) focusedSnap = mainSnap
+        bestText = extractMainContentFromSnapshot(mainSnap)
+      } catch {
+        // 忽略快照异常
       }
     }
 
