@@ -53,6 +53,37 @@ function extractMainContentFromSnapshot(snapshotText = '') {
   return m[1]
 }
 
+function isReplyToOtherTweet(snapshotText = '', cleanUser = '', tweetId = '') {
+  const raw = String(snapshotText || '')
+  if (!raw) return false
+  const cleanLower = String(cleanUser || '').replace(/^@/, '').toLowerCase()
+
+  // 1. 文本中包含「Replying to @xxx」或「回复 @xxx」（且不是回复自己）
+  const replyMatch = raw.match(/(?:Replying to|回复)\s+@([A-Za-z0-9_]+)/i)
+  if (replyMatch && replyMatch[1]) {
+    if (!cleanLower || replyMatch[1].toLowerCase() !== cleanLower) {
+      return true
+    }
+  }
+
+  // 2. 在 main 快照中，若目标推文链接之前已经出现过其他用户的 /status/ 链接，说明上方有父帖，本帖是评论/回复
+  if (cleanLower && tweetId) {
+    const items = parseSnapshotItems(raw)
+    const targetRe = new RegExp(`\\/${cleanLower}\\/status\\/${tweetId}(?:$|[?#])`, 'i')
+    const anyStatusRe = /\/([A-Za-z0-9_]+)\/status\/(\d+)(?:$|[?#])/i
+    for (const item of items) {
+      if (!item.href) continue
+      if (targetRe.test(item.href)) break
+      const m = item.href.match(anyStatusRe)
+      if (m && m[1] && m[1].toLowerCase() !== cleanLower) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   const block = extractMainContentFromSnapshot(snapshotText)
   if (!block) return ''
@@ -702,6 +733,17 @@ export class DshBrowserToolAdapter {
           }
 
           const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
+          if (isReplyToOtherTweet(focusedSnap, cleanUser, tweetId)) {
+            continue
+          }
+          try {
+            const detailMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+            if (isReplyToOtherTweet(detailMainSnap, cleanUser, tweetId)) {
+              continue
+            }
+          } catch {
+            // 忽略 main 快照检测异常
+          }
           if (focusedSnap) {
             metrics = parseTweetMetricsFromItems(parseSnapshotItems(focusedSnap))
           }
