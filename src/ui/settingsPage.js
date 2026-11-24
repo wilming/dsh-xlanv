@@ -474,7 +474,7 @@ function buildSettingsHtml() {
         btn.classList.add('active')
         $('tab-' + btn.dataset.tab).classList.add('active')
         if (btn.dataset.tab === 'posts') loadPosts(true)
-        if (btn.dataset.tab === 'logs') loadLogs()
+        if (btn.dataset.tab === 'logs') loadLogs(true)
       })
     })
 
@@ -684,9 +684,9 @@ function buildSettingsHtml() {
       }
     })
 
-    async function loadLogs() {
+    async function loadLogs(refreshProfile = false) {
       const type = $('logTypeFilter').value
-      const res = await fetch('/xlanv/api/logs?type=' + encodeURIComponent(type))
+      const res = await fetch('/xlanv/api/logs?type=' + encodeURIComponent(type) + '&refresh=' + (refreshProfile ? '1' : '0'))
       const data = await res.json()
       $('logSummary').textContent = '今日累计获得 +' + (data.todayEarned || 0) + ' 积分 | 共 ' + (data.totalCount || 0) + ' 条记录'
       if (typeof data.lastKnownPoints === 'number') {
@@ -716,17 +716,17 @@ function buildSettingsHtml() {
       }).join('')
     }
 
-    $('logTypeFilter').addEventListener('change', loadLogs)
-    $('btnRefreshLogs').addEventListener('click', loadLogs)
+    $('logTypeFilter').addEventListener('change', () => loadLogs(false))
+    $('btnRefreshLogs').addEventListener('click', () => loadLogs(true))
     $('btnClearLogs').addEventListener('click', async () => {
       await fetch('/xlanv/api/logs/clear', { method: 'POST' })
-      await loadLogs()
+      await loadLogs(true)
     })
 
     loadStatus()
     logTimer = setInterval(() => {
       if ($('tab-logs').classList.contains('active')) {
-        loadLogs()
+        loadLogs(false)
       }
     }, 4000)
   </script>
@@ -990,6 +990,17 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
 
       if (req.method === 'GET' && pathname === '/xlanv/api/logs') {
         const type = reqUrl.searchParams.get('type') || 'ALL'
+        const refresh = reqUrl.searchParams.get('refresh') === '1'
+        if (refresh && isValidApiSecret(runner.config.apiSecret)) {
+          try {
+            const prof = await client.getProfile()
+            if (typeof prof?.points === 'number') {
+              activityLogger.setCurrentPoints(prof.points)
+            }
+          } catch {
+            // 忽略临时网络波动
+          }
+        }
         sendJson(res, 200, activityLogger.list({ type, limit: 200 }))
         return
       }
