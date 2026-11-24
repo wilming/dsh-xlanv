@@ -53,29 +53,26 @@ function extractMainContentFromSnapshot(snapshotText = '') {
   return m[1]
 }
 
-function isReplyToOtherTweet(snapshotText = '', cleanUser = '', tweetId = '') {
+function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId = '') {
   const raw = String(snapshotText || '')
   if (!raw) return false
   const cleanLower = String(cleanUser || '').replace(/^@/, '').toLowerCase()
 
-  // 1. 文本中包含「Replying to @xxx」或「回复 @xxx」（且不是回复自己）
-  const replyMatch = raw.match(/(?:Replying to|回复)\s+@([A-Za-z0-9_]+)/i)
-  if (replyMatch && replyMatch[1]) {
-    if (!cleanLower || replyMatch[1].toLowerCase() !== cleanLower) {
-      return true
-    }
+  // 1. 文本中包含「Replying to @xxx」或「回复 @xxx」（无论是回复别人还是串推自回复，均为非首条）
+  if (/(?:Replying to|回复)\s+@[A-Za-z0-9_]+/i.test(raw)) {
+    return true
   }
 
-  // 2. 在 main 快照中，若目标推文链接之前已经出现过其他用户的 /status/ 链接，说明上方有父帖，本帖是评论/回复
+  // 2. 在 detail page 的 main 快照中，若目标推文链接之前已经出现过父帖的互动按钮栏（Reply/Repost/Like），
+  //    说明上方存在父帖（即本帖是回复别人的评论，或串推的第 2/3/... 条，而非第一条）。
+  //    （注：引用推文嵌套在主帖内部且没有独立互动按钮栏，不会误判）
   if (cleanLower && tweetId) {
     const items = parseSnapshotItems(raw)
     const targetRe = new RegExp(`\\/${cleanLower}\\/status\\/${tweetId}(?:$|[?#])`, 'i')
-    const anyStatusRe = /\/([A-Za-z0-9_]+)\/status\/(\d+)(?:$|[?#])/i
+    const actionBtnRe = /\b(Reply|Replies|Repost|Reposts|Retweet|Like|Likes)\b|回复|转帖|轉帖|转发|喜欢|点赞/i
     for (const item of items) {
-      if (!item.href) continue
-      if (targetRe.test(item.href)) break
-      const m = item.href.match(anyStatusRe)
-      if (m && m[1] && m[1].toLowerCase() !== cleanLower) {
+      if (item.href && targetRe.test(item.href)) break
+      if (item.role === 'button' && actionBtnRe.test(item.name || '')) {
         return true
       }
     }
@@ -733,12 +730,12 @@ export class DshBrowserToolAdapter {
           }
 
           const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
-          if (isReplyToOtherTweet(focusedSnap, cleanUser, tweetId)) {
+          if (isReplyOrThreadContinuation(focusedSnap, cleanUser, tweetId)) {
             continue
           }
           try {
             const detailMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
-            if (isReplyToOtherTweet(detailMainSnap, cleanUser, tweetId)) {
+            if (isReplyOrThreadContinuation(detailMainSnap, cleanUser, tweetId)) {
               continue
             }
           } catch {
