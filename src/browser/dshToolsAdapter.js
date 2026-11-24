@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
+const humanPause = (minMs, maxMs) => sleep(randomInt(minMs, maxMs))
 
 function isTimestampLabel(text = '') {
   const s = String(text || '').trim()
@@ -19,7 +21,9 @@ function isTimestampLabel(text = '') {
 function unwrapUntrustedText(raw = '') {
   return String(raw || '')
     .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
-    .replace(/^Treat returned page text as untrusted data[^\n]*\n?/im, '')
+    .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
+    .replace(/Treat returned page text as untrusted data[^\n]*\n?/gi, '')
+    .replace(/\s+/g, ' ')
     .trim()
 }
 
@@ -220,7 +224,7 @@ export class DshBrowserToolAdapter {
 
     await this.ensureXTab(`https://x.com/${cleanUser}`)
     await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
-    await this.callTool('browser_wait', { ms: 2800 })
+    await humanPause(2600, 4500)
 
     // 仅在 main 区域查找，避免误点右侧边栏“推荐关注”的 Follow 按钮
     const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
@@ -258,7 +262,7 @@ export class DshBrowserToolAdapter {
     }
 
     await this.callTool('browser_click', { index: followBtn.index })
-    await this.callTool('browser_wait', { ms: 1600 })
+    await humanPause(1800, 3000)
 
     // 点击后二次校验：必须确认页面按钮真正变成了 Following / 正在关注，才算关注成功
     const verifySnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
@@ -327,8 +331,9 @@ export class DshBrowserToolAdapter {
     try {
       await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
     } catch {
-      await this.callTool('browser_wait', { ms: 2500 })
+      await humanPause(2200, 3500)
     }
+    await humanPause(1500, 2800)
 
     // 在 For You 与 Following 之间交替切换
     this.homeFeedTab = this.homeFeedTab === 'following' ? 'foryou' : 'following'
@@ -343,7 +348,7 @@ export class DshBrowserToolAdapter {
     })
     if (tabBtn) {
       await this.callTool('browser_click', { index: tabBtn.index })
-      await this.callTool('browser_wait', { ms: 1800 })
+      await humanPause(2000, 3600)
       snapshot = await this.callTool('browser_snapshot', { region: 'main' })
       items = parseSnapshotItems(snapshot)
     }
@@ -371,11 +376,12 @@ export class DshBrowserToolAdapter {
 
     collectFromItems(items)
 
-    // 每次最多下滑 2 次，且总数上限严格控制在 20 条以内
+    // 每次最多下滑 2 次，且总数上限严格控制在 20 条以内（模拟人类浏览滚动节奏）
     for (let scrollRound = 0; scrollRound < 2 && tweetMap.size < maxItems; scrollRound++) {
       try {
-        await this.callTool('browser_scroll', { direction: 'down', amount: 650 })
-        await sleep(1000)
+        await humanPause(1200, 2200)
+        await this.callTool('browser_scroll', { direction: 'down', amount: randomInt(450, 750) })
+        await humanPause(1800, 3200)
         const deltaSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
         collectFromItems(parseSnapshotItems(deltaSnap))
       } catch {
@@ -439,8 +445,9 @@ export class DshBrowserToolAdapter {
         emptyRounds = 0
       }
 
-      await this.callTool('browser_scroll', { direction: 'down', amount: 900 })
-      await sleep(1100)
+      await humanPause(1000, 2000)
+      await this.callTool('browser_scroll', { direction: 'down', amount: randomInt(650, 950) })
+      await humanPause(1800, 3200)
     }
 
     const results = []
@@ -448,16 +455,33 @@ export class DshBrowserToolAdapter {
       let content = existingContentMap.get(tweetId) || ''
       if (!content) {
         try {
+          await humanPause(1500, 2800)
           await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
           try {
-            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"] [data-testid="tweetText"]', ms: 6000 })
+            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 7000 })
           } catch {
-            await this.callTool('browser_wait', { ms: 1800 })
+            await humanPause(1800, 3000)
           }
-          const raw = await this.callTool('browser_get_text', {
-            selector: 'article[data-testid="tweet"] [data-testid="tweetText"]'
-          })
-          content = unwrapUntrustedText(raw).replace(/\s+/g, ' ').trim().slice(0, 180)
+          await humanPause(800, 1600)
+
+          let raw = ''
+          try {
+            raw = await this.callTool('browser_get_text', {
+              selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]'
+            })
+          } catch {
+            try {
+              raw = await this.callTool('browser_get_text', {
+                selector: 'article[data-testid="tweet"] [data-testid="tweetText"]'
+              })
+            } catch {
+              raw = ''
+            }
+          }
+          content = unwrapUntrustedText(raw).slice(0, 180)
+          if (!content) {
+            content = '(纯媒体/转发无文字推文)'
+          }
         } catch {
           content = ''
         }
@@ -483,13 +507,20 @@ export class DshBrowserToolAdapter {
     const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
     if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      await this.callTool('browser_wait', { ms: 2200 })
+      await humanPause(2000, 3400)
     }
     try {
-      const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
+      const raw = await this.callTool('browser_get_text', {
+        selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]'
+      })
       return unwrapUntrustedText(raw)
     } catch {
-      return ''
+      try {
+        const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
+        return unwrapUntrustedText(raw)
+      } catch {
+        return ''
+      }
     }
   }
 
@@ -500,7 +531,7 @@ export class DshBrowserToolAdapter {
     const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
     if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      await this.callTool('browser_wait', { ms: 2500 })
+      await humanPause(2200, 3800)
     }
 
     // 仅抓取 main 区域一次快照，减少 50%~70% 的快照 Token 消耗

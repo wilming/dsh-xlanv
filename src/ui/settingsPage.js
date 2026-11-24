@@ -842,6 +842,7 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
               const txt = String(p?.content || '').trim()
               const bad =
                 !txt ||
+                /Security:\s*Enclosed page content/i.test(txt) ||
                 /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(txt) ||
                 /@[A-Za-z0-9_]+\s*·/i.test(txt)
               if (!bad) existingContentMap.set(String(p.tweet_id), txt)

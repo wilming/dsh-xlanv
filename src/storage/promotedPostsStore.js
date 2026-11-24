@@ -90,7 +90,10 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
 
     if (map.has(tid)) {
       const existing = map.get(tid)
-      const prevText = String(existing.content || '').trim()
+      let prevText = String(existing.content || '')
+        .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
+        .trim()
+      existing.content = prevText
       const isPollutedOrTimestamp =
         !prevText ||
         /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(prevText) ||
