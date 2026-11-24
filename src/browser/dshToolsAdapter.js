@@ -98,9 +98,10 @@ function stripDetailNoise(text = '', username = '') {
     out = out.replace(/^.{0,80}?@[A-Za-z0-9_]+\s+/, '')
   }
   out = out
+    .replace(/^(?:·\s*)?(?:\d+\s*(?:[smhd]|seconds?|minutes?|hours?|days?|秒|分钟?|小时|天)前?|just\s+now)\s+/i, '')
     .replace(/(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日[\s\S]*$/i, '')
     .replace(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
-    .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看)[\s\S]*$/i, '')
+    .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看|浏览)[\s\S]*$/i, '')
     .trim()
   return out
 }
