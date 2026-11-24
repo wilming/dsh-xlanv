@@ -1,6 +1,6 @@
 {
   "name": "dsh-xlanv",
-  "version": "1.1.14",
+  "version": "1.1.15",
   "description": "xlanv.net (X 蓝V互助平台) 官方 DeepSeek Harness (dsh) 24小时拟人化自动化插件",
   "main": "index.js",
   "type": "module",

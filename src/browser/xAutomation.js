@@ -322,8 +322,26 @@ export class XAutomationRunner {
     await this.ensureFollowedSynced()
     await this.runRecommendFollowCycle()
 
-    // 仅在 Home 页面的 For You 和 Following 两个信息流巡检，每个页面各采集约 10 条（共约 20 条）
-    if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
+    // 拟人化“边刷边看”：只在 Home 的 For You 和 Following 各刷约 10 条，看到一条即校验一条
+    if (this.browser && typeof this.browser.browseHomeFeeds === 'function') {
+      await this.browser.browseHomeFeeds(10, async (t) => {
+        if (!this.running) return false
+        if (this.isOwnPost(t)) return false
+
+        const checkRes = await this.client.checkSinglePost(t.tweetId, t.authorXId)
+        const item = checkRes?.item
+        if (!item || !item.is_promoted || item.author_points <= 0) {
+          return false
+        }
+
+        await this.handleCandidatePost({
+          ...item,
+          author_username: t.authorUsername || item.author_x_id,
+          content: t.content || ''
+        })
+        return true
+      })
+    } else if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
       const timelineTweets = await this.browser.scanTimelineTweets(10)
       const candidates = timelineTweets.filter((t) => !this.isOwnPost(t)).slice(0, 20)
       if (candidates.length > 0) {
@@ -336,7 +354,6 @@ export class XAutomationRunner {
 
         for (const item of checkRes.items || []) {
           if (!this.running) break
-          // 铁律：未上传或关闭推广或作者积分 <= 0 绝不执行任何互动
           if (!item.is_promoted || item.author_points <= 0) continue
 
           const rawTweet = tweetMap.get(item.tweet_id) || {}

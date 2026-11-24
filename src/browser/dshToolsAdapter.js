@@ -423,6 +423,112 @@ export class DshBrowserToolAdapter {
   }
 
   /**
+   * 拟人化“边刷边看”巡检：只去 For You 和 Following 各刷约 10 条，
+   * 看到一条即通过 onTweetSeen 实时校验一条，符合推广条件当场互动后再继续往下滑
+   */
+  async browseHomeFeeds(perFeedLimit = 10, onTweetSeen) {
+    const feedLimit = Math.min(12, Math.max(5, Number(perFeedLimit || 10)))
+    const tabId = await this.ensureXTab('https://x.com/home')
+
+    const ensureOnHome = async (forceReload = false) => {
+      const tabsText = await this.callTool('browser_list_tabs', {})
+      const tabs = parseTabsList(tabsText)
+      const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+      const curUrl = String(activeTab?.url || '')
+      if (!/x\.com\/home\b/i.test(curUrl) && !/twitter\.com\/home\b/i.test(curUrl)) {
+        try {
+          await this.callTool('browser_back', {})
+          await humanPause(2000, 3500)
+          const backTabs = parseTabsList(await this.callTool('browser_list_tabs', {}))
+          const backUrl = String(backTabs.find((t) => t.tabId === tabId || t.controlled)?.url || '')
+          if (!/x\.com\/home\b/i.test(backUrl) && !/twitter\.com\/home\b/i.test(backUrl)) {
+            await this.callTool('browser_navigate', { url: 'https://x.com/home' })
+          }
+        } catch {
+          await this.callTool('browser_navigate', { url: 'https://x.com/home' })
+        }
+      } else if (forceReload) {
+        await this.callTool('browser_reload', {})
+      }
+      try {
+        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 9000 })
+      } catch {
+        await humanPause(2800, 4500)
+      }
+    }
+
+    await ensureOnHome(true)
+    await humanPause(3000, 5500)
+
+    const seenGlobal = new Set()
+    const statusRe = /(?:https?:\/\/(?:www\.)?(?:x|twitter)\.com)?\/([A-Za-z0-9_]{1,30})\/status\/(\d+)/i
+
+    const browseSingleFeed = async (tabNameRegex) => {
+      await ensureOnHome(false)
+      let snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+      let items = parseSnapshotItems(snapshot)
+
+      const tabBtn = items.find(
+        (item) =>
+          (item.role === 'tab' || item.role === 'link' || item.role === 'button') &&
+          tabNameRegex.test(item.name.trim())
+      )
+      if (tabBtn) {
+        await humanPause(1500, 2800)
+        await this.callTool('browser_click', { index: tabBtn.index })
+        await humanPause(3000, 5500)
+        snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+        items = parseSnapshotItems(snapshot)
+      }
+
+      let feedCount = 0
+      const processVisibleItems = async (list) => {
+        for (const item of list) {
+          if (feedCount >= feedLimit) break
+          if (!item.href) continue
+          const m = item.href.match(statusRe)
+          if (!m) continue
+          const authorUsername = m[1]
+          const tweetId = m[2]
+          if (seenGlobal.has(tweetId)) continue
+          seenGlobal.add(tweetId)
+          feedCount++
+
+          if (typeof onTweetSeen === 'function') {
+            const didInteract = await onTweetSeen({
+              tweetId,
+              authorXId: authorUsername,
+              authorUsername,
+              content: isTimestampLabel(item.name) ? '' : (item.name || '')
+            })
+            if (didInteract) {
+              await ensureOnHome(false)
+            }
+          }
+        }
+      }
+
+      await processVisibleItems(items)
+
+      for (let scrollRound = 0; scrollRound < 2 && feedCount < feedLimit; scrollRound++) {
+        try {
+          await humanPause(2200, 4200)
+          await this.callTool('browser_scroll', { direction: 'down', amount: randomInt(450, 780) })
+          await humanPause(3000, 5500)
+          const deltaSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
+          await processVisibleItems(parseSnapshotItems(deltaSnap))
+        } catch {
+          break
+        }
+      }
+    }
+
+    await browseSingleFeed(/^(For you|为你推荐)$/i)
+    await humanPause(2800, 5200)
+    await browseSingleFeed(/^(Following|正在关注)$/i)
+  }
+
+  /**
    * 抓取本人 X 主页的前 10 条原创帖子：
    * 1. 先翻页收集最多 10 个去重 tweetId（最多下滑 6 次，确保抓够 10 条）
    * 2. 对本地尚无干净正文的新帖，逐条进入推文页用 [data-testid="tweetText"] 精准提取正文，彻底杜绝串行错位与重复
