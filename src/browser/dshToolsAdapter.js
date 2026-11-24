@@ -723,21 +723,31 @@ export class DshBrowserToolAdapter {
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
-          /\b(Repost|Retweet|转推|转发)\b/i.test(item.name) &&
-          !/Undo|取消/i.test(item.name)
+          /\b(Repost|Retweet|转帖|转推|转发)\b/i.test(item.name) &&
+          !/Undo|取消|已转/i.test(item.name)
       )
       if (repostBtn) {
         await humanPause(1200, 2500)
         await this.callTool('browser_click', { index: repostBtn.index })
         await humanPause(1200, 2200)
-        // 仅拉取增量快照定位弹出的转发确认菜单
-        const menuSnap = await this.callTool('browser_snapshot', { delta: true })
-        const menuItems = parseSnapshotItems(menuSnap)
-        const confirmRepost = menuItems.find(
+
+        // 先尝试增量快照定位弹出的转发菜单，若未命中则回退到全页快照查找 role=menuitem
+        let menuSnap = await this.callTool('browser_snapshot', { delta: true })
+        let menuItems = parseSnapshotItems(menuSnap)
+        let confirmRepost = menuItems.find(
           (item) =>
             (item.role === 'menuitem' || item.role === 'button') &&
-            /^(Repost|Retweet|转发|转推)$/i.test(item.name.trim())
+            /^(Repost|Retweet|转帖|转发|转推)$/i.test(item.name.trim())
         )
+        if (!confirmRepost) {
+          menuSnap = await this.callTool('browser_snapshot', {})
+          menuItems = parseSnapshotItems(menuSnap)
+          confirmRepost = menuItems.find(
+            (item) =>
+              item.role === 'menuitem' &&
+              /^(Repost|Retweet|转帖|转发|转推)$/i.test(item.name.trim())
+          )
+        }
         if (confirmRepost) {
           await humanPause(900, 1800)
           await this.callTool('browser_click', { index: confirmRepost.index })

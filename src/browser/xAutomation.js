@@ -199,11 +199,11 @@ export class XAutomationRunner {
   async handleCandidatePost(post) {
     // 铁律：绝不对自己的主帖执行任何转推、评论或点赞
     if (this.isOwnPost(post)) {
-      return
+      return false
     }
 
     const plannedActions = this.buildPlannedActions(post.tweet_id, post.completed_actions, post.allowed_actions)
-    if (plannedActions.length === 0) return
+    if (plannedActions.length === 0) return false
 
     // 1. 拟人化视口停留 5~12 秒
     const dwellMs = randomInt(this.config.timing.dwellMinMs, this.config.timing.dwellMaxMs)
@@ -237,7 +237,7 @@ export class XAutomationRunner {
       })
       if (!confirmRes.confirmed) {
         console.log(`[dsh-xlanv] 用户跳过推文 ${post.tweet_id}`)
-        return
+        return true
       }
       replyText = confirmRes.replyText || replyText
     }
@@ -245,7 +245,7 @@ export class XAutomationRunner {
     // 3. 必须通过真实浏览器执行点赞 / 转发 / 逐字输入回复，严禁未执行就上报
     if (!this.browser || typeof this.browser.interactTweet !== 'function') {
       console.warn('[dsh-xlanv] 浏览器适配器未就绪，跳过推文互动与积分上报（绝不虚报）')
-      return
+      return false
     }
 
     const execRes = await this.browser.interactTweet({
@@ -268,7 +268,7 @@ export class XAutomationRunner {
           : `计划动作: ${plannedActions.join(',')}`
       })
       console.log(`[dsh-xlanv] 推文 ${post.tweet_id} 未完成有效页面互动，跳过上报`)
-      return
+      return true
     }
 
     // 立即记录到本地去重缓存，确保每条推文转发/评论/点赞各最多执行一次
@@ -298,6 +298,7 @@ export class XAutomationRunner {
     // 5. 随机间隔 60~180 秒处理下一条
     const waitMs = randomInt(this.config.timing.intervalMinMs, this.config.timing.intervalMaxMs)
     await sleep(waitMs)
+    return true
   }
 
   isWithinActiveHours() {
@@ -330,19 +331,23 @@ export class XAutomationRunner {
       await this.browser.browseHomeFeeds(10, async (t) => {
         if (!this.running) return false
         if (this.isOwnPost(t)) return false
+        // 本地预先去重：若该推文所有已启用的动作都在本地记录已完成，直接跳过连接口都不请求
+        if (this.buildPlannedActions(t.tweetId).length === 0) return false
 
         const checkRes = await this.client.checkSinglePost(t.tweetId, t.authorXId)
         const item = checkRes?.item
         if (!item || !item.is_promoted || item.author_points <= 0) {
           return false
         }
+        if (Array.isArray(item.completed_actions) && item.completed_actions.length > 0) {
+          this.recordInteracted(t.tweetId, item.completed_actions)
+        }
 
-        await this.handleCandidatePost({
+        return await this.handleCandidatePost({
           ...item,
           author_username: t.authorUsername || item.author_x_id,
           content: t.content || ''
         })
-        return true
       })
     } else if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
       const timelineTweets = await this.browser.scanTimelineTweets(10)
