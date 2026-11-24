@@ -98,6 +98,7 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
         !prevText ||
         prevText === '(纯媒体/转发无文字推文)' ||
         prevText === '(无文字内容)' ||
+        /To view keyboard shortcuts|Skip to home timeline|Skip to trending/i.test(prevText) ||
         /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(prevText) ||
         /@[A-Za-z0-9_]+\s*·\s*(?:\d+[smhd]|\d+\s*(?:hour|minute|second|day))/i.test(prevText)
       if (t.content && (isPollutedOrTimestamp || prevText.length < 10)) {
@@ -174,14 +175,11 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
     scrapedTweets.map((t) => String(t.tweetId || t.tweet_id || '').trim()).filter(Boolean)
   )
 
-  // 若本次刷新抓取到了主页最新推文，清理不在最新抓取范围内且未上传的空文本/占位符旧行，避免列表越刷越多
+  // 若本次刷新抓取到了主页最新推文，未上传的本地条目严格与主页最新抓到的列表对齐，清理已失效/幽灵旧行
   const cleanedPosts = Array.from(map.values()).filter((p) => {
     if (scrapedIdSet.size === 0) return true
     if (p.is_uploaded || p.is_promoted) return true
-    if (scrapedIdSet.has(String(p.tweet_id))) return true
-    const txt = String(p.content || '').trim()
-    const isEmptyPlaceholder = !txt || txt === '(无文字内容)' || txt === '(纯媒体/转发无文字推文)'
-    return !isEmptyPlaceholder
+    return scrapedIdSet.has(String(p.tweet_id))
   })
 
   store.posts = cleanedPosts.sort((a, b) =>

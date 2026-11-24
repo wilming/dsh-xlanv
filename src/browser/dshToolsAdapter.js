@@ -32,6 +32,15 @@ function unwrapUntrustedText(raw = '') {
     .trim()
 }
 
+const CHROME_NOISE_RE =
+  /(?:To view keyboard shortcuts,\s*press question mark|View keyboard shortcuts|Skip to home timeline|Skip to trending|Set up profile|\bSubscribe\b|\bFor you\b\s+\bFollowing\b)/i
+
+function isPollutedChromeText(text = '') {
+  const s = String(text || '').trim()
+  if (!s) return true
+  return CHROME_NOISE_RE.test(s)
+}
+
 function extractMainContentFromSnapshot(snapshotText = '') {
   const cleanedRaw = String(snapshotText || '')
     .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
@@ -41,7 +50,62 @@ function extractMainContentFromSnapshot(snapshotText = '') {
     /(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\s*\n\s*(?:Changed )?(?:Interactive|Form|Images)\b|$)/i
   )
   if (!m || !m[1]) return ''
-  return unwrapUntrustedText(m[1])
+  return m[1]
+}
+
+function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
+  const block = extractMainContentFromSnapshot(snapshotText)
+  if (!block) return ''
+
+  // 1. 优先匹配 X 详情页无障碍标题格式: Post<Name> on X: "<正文>"
+  const titleQuoteMatch = block.match(/Post[^\n"]*?\s+on X:\s*"([^"]{1,350})"/i)
+  if (titleQuoteMatch && titleQuoteMatch[1]) {
+    const quoted = unwrapUntrustedText(titleQuoteMatch[1])
+    if (quoted && !isPollutedChromeText(quoted)) return quoted
+  }
+
+  // 2. 从 Main content 逐行剥离导航栏/用户信息/时间戳/操作栏噪音
+  const lines = block
+    .split(/\r?\n/)
+    .map((l) => l.replace(/⟦i\d+[^⟧]*⟧/g, ' ').trim())
+    .filter(Boolean)
+
+  const cleanUser = String(username || '').replace(/^@/, '').trim()
+  const filtered = []
+  let started = false
+  for (const line of lines) {
+    if (
+      /^(?:To view keyboard shortcuts|View keyboard shortcuts|Skip to home timeline|Skip to trending|Post|Conversation|Home|Explore|Notifications|Messages|Grok|Bookmarks|Profile|More|Subscribe|For you|Following|Follow|Set up profile|\d+\s+posts?)$/i.test(
+        line
+      )
+    ) {
+      if (/^Conversation$/i.test(line)) started = true
+      continue
+    }
+    if (cleanUser && new RegExp(`^@?${cleanUser}$`, 'i').test(line)) {
+      started = true
+      continue
+    }
+    if (/^@[A-Za-z0-9_]+$/.test(line)) continue
+    if (/^(?:Translated from|Show original|View original|Translate post|显示原文|查看原文|显示原帖|翻译帖子|由\s*\S+\s*翻译)/i.test(line)) {
+      continue
+    }
+    // 到达底部时间线/数据统计区即停止收集
+    if (
+      /^(?:\d{1,2}:\d{2}\s*(?:AM|PM)|·|\d+\s*Views?|Views?|Replies?|Reposts?|Likes?|Bookmarks?|Quote|查看次数|回复|转发|转帖|点赞)$/i.test(
+        line
+      )
+    ) {
+      if (started && filtered.length > 0) break
+      continue
+    }
+    if (isTimestampLabel(line)) continue
+    filtered.push(line)
+  }
+
+  const joined = unwrapUntrustedText(filtered.join(' '))
+  if (!joined || isPollutedChromeText(joined)) return ''
+  return joined
 }
 
 /**
@@ -630,13 +694,24 @@ export class DshBrowserToolAdapter {
           }
           await humanPause(700, 1400)
 
-          const { text, focusedSnap } = await this.extractCurrentTweetText()
+          // 确认当前标签页确实停留在该推文详情页，避免被重定向到 /home 抓出导航栏噪音或幽灵行
+          const navTabs = parseTabsList(await this.callTool('browser_list_tabs', {}))
+          const activeNavTab = navTabs.find((t) => t.controlled) || navTabs[0]
+          if (activeNavTab?.url && !String(activeNavTab.url).includes(`/status/${tweetId}`)) {
+            continue
+          }
+
+          const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
           if (focusedSnap) {
             metrics = parseTweetMetricsFromItems(parseSnapshotItems(focusedSnap))
           }
 
           content = text.slice(0, 180)
           if (!content && focusedSnap) {
+            if (isPollutedChromeText(extractMainContentFromSnapshot(focusedSnap)) && !/Conversation/i.test(focusedSnap)) {
+              // 页面非推文详情页（如主页时间线）时跳过，不生成假行
+              continue
+            }
             content = '(无文字内容)'
           }
         } catch {
@@ -660,7 +735,7 @@ export class DshBrowserToolAdapter {
    * 1. 若 X 自动翻译遮挡/替换了 tweetText，先尝试点击「显示原文 / Show original」还原原帖节点
    * 2. 依次尝试 tweetText、div[lang]、长文节点与聚焦 article 全文，最后用 Main content 快照兜底
    */
-  async extractCurrentTweetText() {
+  async extractCurrentTweetText(username = '') {
     let focusedSnap = ''
     try {
       focusedSnap = await this.callTool('browser_snapshot', {
@@ -723,7 +798,7 @@ export class DshBrowserToolAdapter {
         try {
           const raw = await this.callTool('browser_get_text', { selector: sel })
           const cleaned = unwrapUntrustedText(raw)
-          if (cleaned && cleaned.length > text.length) {
+          if (cleaned && !isPollutedChromeText(cleaned) && cleaned.length > text.length) {
             text = cleaned
             if (text.length >= 15) break
           }
@@ -740,17 +815,17 @@ export class DshBrowserToolAdapter {
       bestText = await readSelectors()
     }
 
-    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 提取正文（保留换行再截取）
+    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 剥离导航噪音并提取正文
     if (!bestText && focusedSnap) {
-      bestText = extractMainContentFromSnapshot(focusedSnap)
+      bestText = extractTweetTextFromDetailSnapshot(focusedSnap, username)
     }
 
-    // 二级兜底：若聚焦快照仍为空，从 main 区域快照提取
+    // 二级兜底：若聚焦快照仍为空，从 main 区域快照剥离导航噪音并提取正文
     if (!bestText) {
       try {
         const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
         if (!focusedSnap) focusedSnap = mainSnap
-        bestText = extractMainContentFromSnapshot(mainSnap)
+        bestText = extractTweetTextFromDetailSnapshot(mainSnap, username)
       } catch {
         // 忽略快照异常
       }
