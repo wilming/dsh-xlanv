@@ -3,6 +3,7 @@ import path from 'node:path'
 import { getDataDir, isValidApiSecret, saveConfig } from '../config.js'
 import { extractPurePostText, generateHumanReply } from '../humanizer/replyGenerator.js'
 import { activityLogger } from '../storage/activityLogger.js'
+import { loadPromotedPostsStore } from '../storage/promotedPostsStore.js'
 import { confirmBeforeInteract, promptForApiSecret } from '../ui/confirmModal.js'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -81,6 +82,13 @@ export class XAutomationRunner {
   }
 
   isOwnPost(post) {
+    const tid = String(post?.tweet_id || post?.tweetId || '').trim()
+    if (tid) {
+      const store = loadPromotedPostsStore()
+      if ((store.posts || []).some((p) => String(p.tweet_id) === tid)) {
+        return true
+      }
+    }
     if (!this.myProfile) return false
     const axId = String(post?.author_x_id || post?.authorXId || '').trim()
     const axName = String(post?.author_username || post?.authorUsername || axId).replace(/^@/, '').trim().toLowerCase()
