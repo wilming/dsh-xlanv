@@ -896,7 +896,9 @@ export class DshBrowserToolAdapter {
 
     if (actions.includes('RETWEET')) {
       const alreadyReposted = baseItems.some(
-        (item) => item.role === 'button' && /Undo\s*repost|Undo\s*retweet|取消转帖|已转帖|取消转发/i.test(item.name)
+        (item) =>
+          item.role === 'button' &&
+          /\b(Reposted|Retweeted)\b|Undo\s*repost|Undo\s*retweet|取消转帖|已转帖|已转发|取消转发/i.test(item.name)
       )
       if (alreadyReposted) {
         alreadyDoneOnPage.push('RETWEET')
@@ -906,7 +908,7 @@ export class DshBrowserToolAdapter {
             !item.disabled &&
             item.role === 'button' &&
             /\b(Repost|Retweet)\b|转帖|轉帖|转推|转发/i.test(item.name) &&
-            !/Undo|取消|已转/i.test(item.name)
+            !/\b(Reposted|Retweeted)\b|Undo|取消|已转/i.test(item.name)
         )
         if (repostBtn) {
           await humanPause(1200, 2500)
@@ -919,21 +921,20 @@ export class DshBrowserToolAdapter {
           } catch {
             menuSnap = await this.callTool('browser_snapshot', { delta: true })
           }
-          const menuItems = parseSnapshotItems(menuSnap)
-          let confirmRepost = menuItems.find(
-            (item) =>
-              (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
-              (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
-              !/Quote|引用|Undo|取消/i.test(item.name)
-          )
-          if (!confirmRepost) {
-            const deltaSnap = await this.callTool('browser_snapshot', { delta: true })
-            confirmRepost = parseSnapshotItems(deltaSnap).find(
+          let menuItems = parseSnapshotItems(menuSnap)
+          const findConfirmRepost = (items) =>
+            items.find(
               (item) =>
                 (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
                 (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
                 !/Quote|引用|Undo|取消/i.test(item.name)
             )
+          let confirmRepost = findConfirmRepost(menuItems)
+          if (!confirmRepost) {
+            const deltaSnap = await this.callTool('browser_snapshot', { delta: true })
+            const deltaItems = parseSnapshotItems(deltaSnap)
+            if (deltaItems.length > 0) menuItems = menuItems.concat(deltaItems)
+            confirmRepost = findConfirmRepost(deltaItems)
           }
           if (confirmRepost) {
             await humanPause(900, 1800)
@@ -941,11 +942,18 @@ export class DshBrowserToolAdapter {
             await humanPause(1800, 3200)
             executedActions.push('RETWEET')
           } else {
-            console.warn(
-              '[dsh-xlanv] 未匹配到转发确认菜单项，候选菜单元素:',
-              menuItems.map((i) => `${i.role}:"${i.name}"`).join(' | ')
+            const menuShowsAlreadyReposted = menuItems.some((item) =>
+              /Undo\s*repost|Undo\s*retweet|取消转帖|取消转发/i.test(item.name)
             )
-            // 若未找到确认项，按 Escape 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
+            if (menuShowsAlreadyReposted) {
+              alreadyDoneOnPage.push('RETWEET')
+            } else {
+              console.warn(
+                '[dsh-xlanv] 未匹配到转发确认菜单项，候选菜单元素:',
+                menuItems.map((i) => `${i.role}:"${i.name}"`).join(' | ')
+              )
+            }
+            // 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
             try {
               await this.callTool('browser_press', { key: 'Escape' })
               await humanPause(600, 1200)
