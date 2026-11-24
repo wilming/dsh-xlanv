@@ -90,7 +90,14 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
 
     if (map.has(tid)) {
       const existing = map.get(tid)
-      if (!existing.content && t.content) existing.content = t.content
+      const isOldTimestamp = /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(
+        String(existing.content || '').trim()
+      )
+      if ((!existing.content || isOldTimestamp) && t.content) {
+        existing.content = t.content
+      } else if (isOldTimestamp && !t.content) {
+        existing.content = ''
+      }
       if (remote) {
         existing.is_uploaded = true
         existing.is_promoted = Boolean(remote.is_promoted)

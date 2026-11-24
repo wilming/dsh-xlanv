@@ -71,6 +71,8 @@ function isTimestampLike(str) {
   if (!s) return true
   return (
     /^\d+\s*[smhd]$/i.test(s) ||
+    /^\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago$/i.test(s) ||
+    /^just\s+now$/i.test(s) ||
     /^\d+\s*(秒|分钟?|小时|天)前?$/.test(s) ||
     /^(?:\d{4}[年/-])?\d{1,2}[月/-]\d{1,2}日?$/.test(s) ||
     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?$/i.test(s) ||

@@ -7,6 +7,8 @@ function isTimestampLabel(text = '') {
   if (!s) return true
   return (
     /^\d+\s*[smhd]$/i.test(s) ||
+    /^\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago$/i.test(s) ||
+    /^just\s+now$/i.test(s) ||
     /^\d+\s*(秒|分钟?|小时|天)前?$/.test(s) ||
     /^(?:\d{4}[年/-])?\d{1,2}[月/-]\d{1,2}日?$/.test(s) ||
     /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?$/i.test(s) ||
@@ -31,7 +33,8 @@ export function extractTweetSnippetsFromMain(snapshotText = '', username = '') {
   if (!mainText || !username) return []
 
   const cleanUser = username.replace(/^@/, '')
-  const re = new RegExp(`@${cleanUser}\\s*·\\s*[^\\s]+\\s+`, 'gi')
+  const tsPattern = '(?:\\d+\\s*(?:seconds?|minutes?|hours?|days?|weeks?)\\s+ago|just\\s+now|\\d+\\s*[smhd]|\\d+\\s*(?:秒|分钟?|小时|天)前?|(?:\\d{4}[年/-])?\\d{1,2}[月/-]\\d{1,2}日?|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2}(?:,\\s*\\d{4})?)'
+  const re = new RegExp(`@${cleanUser}\\s*·\\s*${tsPattern}\\s+`, 'gi')
   const parts = mainText.split(re)
   if (parts.length <= 1) return []
 
