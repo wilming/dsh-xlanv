@@ -170,7 +170,21 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
     }
   }
 
-  store.posts = Array.from(map.values()).sort((a, b) =>
+  const scrapedIdSet = new Set(
+    scrapedTweets.map((t) => String(t.tweetId || t.tweet_id || '').trim()).filter(Boolean)
+  )
+
+  // 若本次刷新抓取到了主页最新推文，清理不在最新抓取范围内且未上传的空文本/占位符旧行，避免列表越刷越多
+  const cleanedPosts = Array.from(map.values()).filter((p) => {
+    if (scrapedIdSet.size === 0) return true
+    if (p.is_uploaded || p.is_promoted) return true
+    if (scrapedIdSet.has(String(p.tweet_id))) return true
+    const txt = String(p.content || '').trim()
+    const isEmptyPlaceholder = !txt || txt === '(无文字内容)' || txt === '(纯媒体/转发无文字推文)'
+    return !isEmptyPlaceholder
+  })
+
+  store.posts = cleanedPosts.sort((a, b) =>
     String(b.tweet_id).localeCompare(String(a.tweet_id))
   )
   savePromotedPostsStore(store)

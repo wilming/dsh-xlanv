@@ -604,50 +604,23 @@ export class DshBrowserToolAdapter {
           await humanPause(1500, 2800)
           await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
           try {
-            await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 7000 })
+            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"][tabindex="-1"]', ms: 8000 })
           } catch {
-            await humanPause(1800, 3000)
+            try {
+              await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 3000 })
+            } catch {
+              await humanPause(1800, 3000)
+            }
           }
           await humanPause(700, 1400)
 
-          let raw = ''
-          const selectors = [
-            'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
-            'article[data-testid="tweet"] [data-testid="tweetText"]',
-            '[data-testid="twitterArticleRichTextView"]',
-            '[data-testid="tweetText"]'
-          ]
-          for (const sel of selectors) {
-            try {
-              const txt = await this.callTool('browser_get_text', { selector: sel })
-              const cleaned = unwrapUntrustedText(txt)
-              if (cleaned) {
-                raw = cleaned
-                break
-              }
-            } catch {
-              // 尝试下一个选择器
-            }
+          const { text, focusedSnap } = await this.extractCurrentTweetText()
+          if (focusedSnap) {
+            metrics = parseTweetMetricsFromItems(parseSnapshotItems(focusedSnap))
           }
 
-          let snap = ''
-          try {
-            snap = await this.callTool('browser_snapshot', { region: 'main' })
-            metrics = parseTweetMetricsFromItems(parseSnapshotItems(snap))
-          } catch {
-            // 忽略快照异常
-          }
-
-          // 若 CSS 选择器均未命中，从 main 快照正文兜底提取
-          if (!raw && snap) {
-            const snippets = extractTweetSnippetsFromMain(snap, cleanUser)
-            if (snippets.length > 0 && snippets[0]) {
-              raw = snippets[0]
-            }
-          }
-
-          content = raw.slice(0, 180)
-          if (!content) {
+          content = text.slice(0, 180)
+          if (!content && focusedSnap) {
             content = '(无文字内容)'
           }
         } catch {
@@ -667,26 +640,11 @@ export class DshBrowserToolAdapter {
   }
 
   /**
-   * 精确提取推文正文纯文本：
+   * 在当前已打开的推文详情页提取主帖正文：
    * 1. 若 X 自动翻译遮挡/替换了 tweetText，先尝试点击「显示原文 / Show original」还原原帖节点
-   * 2. 依次尝试 tweetText、div[lang]、长文节点与聚焦 article 全文，最后用 main 快照兜底
+   * 2. 依次尝试 tweetText、div[lang]、长文节点与聚焦 article 全文，最后用 Main content 快照兜底
    */
-  async getTweetText(tweetId) {
-    const tabId = await this.ensureXTab('https://x.com/home')
-    const tabsText = await this.callTool('browser_list_tabs', {})
-    const tabs = parseTabsList(tabsText)
-    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
-    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
-      await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      try {
-        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
-      } catch {
-        await humanPause(2000, 3400)
-      }
-      await humanPause(900, 1600)
-    }
-
-    // 检查是否处于 X 自动翻译状态（存在 Show original / 显示原文 / 查看原文 按钮），有则点击还原原文
+  async extractCurrentTweetText() {
     let focusedSnap = ''
     try {
       focusedSnap = await this.callTool('browser_snapshot', {
@@ -754,7 +712,29 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    return bestText.slice(0, 350)
+    return { text: bestText.slice(0, 350), focusedSnap }
+  }
+
+  /**
+   * 精确提取推文正文纯文本
+   */
+  async getTweetText(tweetId) {
+    const tabId = await this.ensureXTab('https://x.com/home')
+    const tabsText = await this.callTool('browser_list_tabs', {})
+    const tabs = parseTabsList(tabsText)
+    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
+      await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
+      try {
+        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
+      } catch {
+        await humanPause(2000, 3400)
+      }
+      await humanPause(900, 1600)
+    }
+
+    const { text } = await this.extractCurrentTweetText()
+    return text
   }
 
   async interactTweet({ tweetId, actions = [], replyText = '' }) {
