@@ -1,7 +1,8 @@
 export class XlanvClient {
-  constructor(baseUrl, apiSecret) {
+  constructor(baseUrl, apiSecret, { onApiLog = null } = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '')
     this.apiSecret = apiSecret
+    this.onApiLog = onApiLog
   }
 
   async request(method, path, body = null) {
@@ -10,17 +11,61 @@ export class XlanvClient {
       'X-Api-Secret': this.apiSecret
     }
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined
-    })
+    const startAt = Date.now()
+    let status = 0
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined
+      })
+      status = res.status
 
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(data.error || `HTTP ${res.status} ${path}`)
+      const data = await res.json().catch(() => ({}))
+      const durationMs = Date.now() - startAt
+      if (!res.ok) {
+        if (typeof this.onApiLog === 'function') {
+          this.onApiLog({
+            ok: false,
+            method,
+            path,
+            status,
+            durationMs,
+            error: data.error || `HTTP ${res.status}`
+          })
+        }
+        throw new Error(data.error || `HTTP ${res.status} ${path}`)
+      }
+
+      if (typeof this.onApiLog === 'function') {
+        this.onApiLog({
+          ok: true,
+          method,
+          path,
+          status,
+          durationMs,
+          data
+        })
+      }
+      return data
+    } catch (err) {
+      if (status === 0 && typeof this.onApiLog === 'function') {
+        this.onApiLog({
+          ok: false,
+          method,
+          path,
+          status: 0,
+          durationMs: Date.now() - startAt,
+          error: err.message
+        })
+      }
+      throw err
     }
-    return data
+  }
+
+  // 获取当前插件绑定会员信息与实时积分
+  getProfile() {
+    return this.request('GET', '/plugin/profile')
   }
 
   // 每 60 分钟获取 10 名推荐关注会员
@@ -41,12 +86,29 @@ export class XlanvClient {
     return this.request('GET', '/plugin/follows/list')
   }
 
-  // 会员发帖上传推广 (0 积分消耗)
-  promotePost(tweetId, content, targetReplies = 20) {
+  // 查询本人已上传的推广帖子列表
+  getMyPosts() {
+    return this.request('GET', '/plugin/posts')
+  }
+
+  // 会员发帖上传推广 (0 积分消耗，支持指定允许推广的项目)
+  promotePost(tweetIdOrOpts, content, targetReplies = 20, allowedActions = ['RETWEET', 'REPLY', 'LIKE']) {
+    const opts =
+      typeof tweetIdOrOpts === 'object' && tweetIdOrOpts !== null
+        ? tweetIdOrOpts
+        : { tweetId: tweetIdOrOpts, content, targetReplies, allowedActions }
     return this.request('POST', '/plugin/posts/promote', {
-      tweet_id: tweetId,
-      content,
-      target_replies: targetReplies
+      tweet_id: opts.tweetId,
+      content: opts.content || '',
+      target_replies: opts.targetReplies || 20,
+      allowed_actions: opts.allowedActions || ['RETWEET', 'REPLY', 'LIKE']
+    })
+  }
+
+  // 切换本人某条帖子的推广开关
+  togglePostPromote(tweetId, isPromoted = null) {
+    return this.request('PATCH', `/plugin/posts/${encodeURIComponent(tweetId)}/toggle`, {
+      is_promoted: isPromoted
     })
   }
 

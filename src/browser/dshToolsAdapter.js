@@ -237,6 +237,52 @@ export class DshBrowserToolAdapter {
     return Array.from(tweetMap.values()).slice(0, 50)
   }
 
+  /**
+   * 抓取本人 X 主页的前 10 条原创帖子，用于帖子推广管理页与本地配置合并
+   */
+  async scanProfileTweets(xUsername, limit = 10) {
+    const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
+    if (!cleanUser) {
+      throw new Error('未提供 X 用户名，无法抓取个人主页帖子')
+    }
+
+    await this.ensureXTab(`https://x.com/${cleanUser}`)
+    await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
+    await this.callTool('browser_wait', { ms: 3000 })
+
+    const tweetMap = new Map()
+    const statusRe = new RegExp(
+      `(?:https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com)?\\/${cleanUser}\\/status\\/(\\d+)`,
+      'i'
+    )
+
+    for (let round = 0; round < 3 && tweetMap.size < limit; round++) {
+      const snapshot = await this.callTool('browser_snapshot', {})
+      const items = parseSnapshotItems(snapshot)
+      for (const item of items) {
+        if (!item.href) continue
+        const m = item.href.match(statusRe)
+        if (!m) continue
+        const tweetId = m[1]
+        if (!tweetMap.has(tweetId)) {
+          tweetMap.set(tweetId, {
+            tweetId,
+            authorUsername: cleanUser,
+            content: item.name || '',
+            url: `https://x.com/${cleanUser}/status/${tweetId}`
+          })
+          if (tweetMap.size >= limit) break
+        }
+      }
+      if (tweetMap.size < limit && round < 2) {
+        await this.callTool('browser_scroll', { direction: 'down', amount: 650 })
+        await sleep(1000)
+      }
+    }
+
+    return Array.from(tweetMap.values()).slice(0, limit)
+  }
+
   async interactTweet({ tweetId, actions = [], replyText = '' }) {
     await this.ensureXTab()
     let snapshot = await this.callTool('browser_snapshot', {})

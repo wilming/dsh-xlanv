@@ -4,6 +4,7 @@ import { isValidApiSecret, loadConfig } from './src/config.js'
 import { XlanvClient } from './src/api/xlanvClient.js'
 import { DshBrowserToolAdapter } from './src/browser/dshToolsAdapter.js'
 import { XAutomationRunner } from './src/browser/xAutomation.js'
+import { activityLogger } from './src/storage/activityLogger.js'
 import { buildDshUiInjectScript, registerSettingsRoutes } from './src/ui/settingsPage.js'
 
 export { deAiTone, generateHumanReply } from './src/humanizer/replyGenerator.js'
@@ -21,6 +22,11 @@ export const Config = z.object({
         .string()
         .default('')
         .description('xlanv.net 平台密钥（api_secret）。请在官网绑定 X 用户名后复制填入此处。'),
+      customPrompt: z
+        .string()
+        .max(1000)
+        .default('')
+        .description('自定义互动 Prompt 提示语（1000字以内），运行时将作为提示词加入上下文窗口。'),
       baseUrl: z
         .string()
         .default('https://xlanv.net/api/v1')
@@ -115,7 +121,25 @@ export const Config = z.object({
 
 export function apply(ctx, pluginConfig = {}) {
   const config = loadConfig(pluginConfig)
-  const client = new XlanvClient(config.baseUrl, config.apiSecret)
+  const client = new XlanvClient(config.baseUrl, config.apiSecret, {
+    onApiLog: ({ ok, method, path, status, durationMs, data, error }) => {
+      if (typeof data?.current_points === 'number') {
+        activityLogger.setCurrentPoints(data.current_points)
+      } else if (typeof data?.points === 'number') {
+        activityLogger.setCurrentPoints(data.points)
+      }
+      if (!ok) {
+        activityLogger.append({
+          type: 'API_ERROR',
+          action: `接口调用失败: ${method} ${path}`,
+          api: `${method} ${path}`,
+          status,
+          durationMs,
+          detail: error || ''
+        })
+      }
+    }
+  })
   const runner = new XAutomationRunner({
     client,
     browser: null,

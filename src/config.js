@@ -21,10 +21,19 @@ export function getConfigPath() {
   return path.join(getDataDir(), 'config.json')
 }
 
+export function getPromotedPostsPath() {
+  return path.join(getDataDir(), 'promoted_posts.json')
+}
+
+export function getLogsPath() {
+  return path.join(getDataDir(), 'logs.json')
+}
+
 const DEFAULT_CONFIG = {
   enabled: true,
   baseUrl: 'https://xlanv.net/api/v1',
   apiSecret: '',
+  customPrompt: '',
   mode: 'semi-auto', // 'semi-auto' (20s弹窗确认) | 'auto'
   confirmTimeoutSeconds: 20,
   activeStartHour: 0,
@@ -115,6 +124,12 @@ export function loadConfig(overrides = {}) {
   if (process.env.XLANV_BASE_URL) merged.baseUrl = process.env.XLANV_BASE_URL
   if (process.env.XLANV_API_SECRET) merged.apiSecret = process.env.XLANV_API_SECRET
   if (process.env.XLANV_MODE) merged.mode = process.env.XLANV_MODE
+
+  if (typeof merged.customPrompt === 'string') {
+    merged.customPrompt = merged.customPrompt.trim().slice(0, 1000)
+  } else {
+    merged.customPrompt = ''
+  }
 
   return merged
 }

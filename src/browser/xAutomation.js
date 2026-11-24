@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getDataDir, isValidApiSecret, saveConfig } from '../config.js'
 import { generateHumanReply } from '../humanizer/replyGenerator.js'
+import { activityLogger } from '../storage/activityLogger.js'
 import { confirmBeforeInteract, promptForApiSecret } from '../ui/confirmModal.js'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -86,20 +87,33 @@ export class XAutomationRunner {
         continue
       }
 
-      await this.client.reportFollow(member.x_user_id, member.x_username)
+      const followRes = await this.client.reportFollow(member.x_user_id, member.x_username)
       this.followedMap.set(member.x_user_id, member)
       this.saveLocalFollowed()
+      const earned = typeof followRes?.earned_points === 'number' ? followRes.earned_points : (followRes?.already_followed ? 0 : 1)
+      activityLogger.append({
+        type: 'FOLLOW',
+        action: `关注会员 @${member.x_username}`,
+        api: 'POST /plugin/follows/report',
+        status: 200,
+        pointsDelta: earned,
+        currentPoints: followRes?.current_points ?? null,
+        detail: followRes?.already_followed ? '重复关注不重复计分' : '新关注 +1 分'
+      })
       console.log(`[dsh-xlanv] 已关注 @${member.x_username} 并完成 +1/-1 积分回传`)
       await sleep(randomInt(4000, 9000))
     }
   }
 
-  buildPlannedActions(completedActions = []) {
+  buildPlannedActions(completedActions = [], allowedActions = null) {
     const done = new Set(completedActions)
+    const allowed = Array.isArray(allowedActions) && allowedActions.length > 0
+      ? new Set(allowedActions.map((a) => String(a).toUpperCase()))
+      : null
     const planned = []
-    if (this.config.actions.retweet && !done.has('RETWEET')) planned.push('RETWEET')
-    if (this.config.actions.reply && !done.has('REPLY')) planned.push('REPLY')
-    if (this.config.actions.like && !done.has('LIKE')) planned.push('LIKE')
+    if (this.config.actions.retweet && !done.has('RETWEET') && (!allowed || allowed.has('RETWEET'))) planned.push('RETWEET')
+    if (this.config.actions.reply && !done.has('REPLY') && (!allowed || allowed.has('REPLY'))) planned.push('REPLY')
+    if (this.config.actions.like && !done.has('LIKE') && (!allowed || allowed.has('LIKE'))) planned.push('LIKE')
     return planned
   }
 
@@ -108,12 +122,15 @@ export class XAutomationRunner {
     const dwellMs = randomInt(this.config.timing.dwellMinMs, this.config.timing.dwellMaxMs)
     await sleep(dwellMs)
 
-    const plannedActions = this.buildPlannedActions(post.completed_actions)
+    const plannedActions = this.buildPlannedActions(post.completed_actions, post.allowed_actions)
     if (plannedActions.length === 0) return
 
     let replyText = ''
     if (plannedActions.includes('REPLY')) {
-      replyText = await generateHumanReply(post.content || '', this.llm, this.config.humanReply)
+      replyText = await generateHumanReply(post.content || '', this.llm, {
+        ...(this.config.humanReply || {}),
+        customPrompt: this.config.customPrompt || ''
+      })
     }
 
     // 2. 弹窗倒计时 20 秒确认（半自动模式下人工可干预，超时自动执行）
@@ -164,6 +181,15 @@ export class XAutomationRunner {
       replyTweetId,
       replyText
     })
+    activityLogger.append({
+      type: 'INTERACT',
+      action: `互动 @${post.author_username || post.author_x_id} (${reportRes.settled_actions?.join('+') || finalActions.join('+')})`,
+      api: 'POST /plugin/interactions/report',
+      status: 200,
+      pointsDelta: reportRes.earned_points || 0,
+      currentPoints: reportRes.current_points ?? null,
+      detail: replyText ? `推文 ${post.tweet_id} | 评论: ${replyText}` : `推文 ${post.tweet_id}`
+    })
     console.log(
       `[dsh-xlanv] 推文 ${post.tweet_id} 互动完成: ${reportRes.settled_actions?.join(', ')} (+${reportRes.earned_points} 分)`
     )
@@ -210,6 +236,7 @@ export class XAutomationRunner {
           author_x_id: hp.post.author_x_user_id,
           author_username: hp.post.author_x_username,
           content: hp.post.content,
+          allowed_actions: hp.post.allowed_actions || null,
           completed_actions: []
         })
         return
