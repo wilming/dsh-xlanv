@@ -584,12 +584,21 @@ export class DshBrowserToolAdapter {
       }
 
       if (inputBox) {
+        // 记录提交前页面已有的 status IDs，用于提交后精准 diff 出新评论的 replyTweetId
+        const preStatusIds = new Set(
+          baseItems
+            .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
+            .filter(Boolean)
+        )
+        preStatusIds.add(String(tweetId))
+
         await this.callTool('browser_type', {
           index: inputBox.index,
           text: replyText,
           replace: false
         })
-        await sleep(600)
+        await sleep(700)
+
         let submitBtn = currentItems.find(
           (item) =>
             !item.disabled &&
@@ -605,16 +614,41 @@ export class DshBrowserToolAdapter {
               /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
           )
         }
+        if (!submitBtn) {
+          const fullMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+          submitBtn = parseSnapshotItems(fullMainSnap).find(
+            (item) =>
+              !item.disabled &&
+              item.role === 'button' &&
+              /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
+          )
+        }
+
         if (submitBtn) {
           await this.callTool('browser_click', { index: submitBtn.index })
           await this.callTool('browser_wait', { ms: 2500 })
-          const afterPostSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
-          const postItems = parseSnapshotItems(afterPostSnap)
-          const statusMatches = postItems
+
+          // 1. 不限制 region='main' 抓取增量快照，以捕获 X 底部 "Your post was sent -> View" 弹窗链接中的新 replyTweetId
+          const toastDeltaSnap = await this.callTool('browser_snapshot', { delta: true })
+          const toastIds = parseSnapshotItems(toastDeltaSnap)
             .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
-            .filter((id) => id && id !== String(tweetId))
-          if (statusMatches.length > 0) {
-            replyTweetId = statusMatches[statusMatches.length - 1]
+            .filter((id) => id && !preStatusIds.has(id))
+
+          if (toastIds.length > 0) {
+            replyTweetId = toastIds[toastIds.length - 1]
+          } else {
+            // 2. 兜底再等 1.5s，拉取 main 区域对比 preStatusIds 找到新出现的评论推文 ID
+            await sleep(1500)
+            const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+            const mainIds = parseSnapshotItems(mainSnap)
+              .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
+              .filter((id) => id && !preStatusIds.has(id))
+            if (mainIds.length > 0) {
+              replyTweetId = mainIds[0]
+            }
+          }
+
+          if (replyTweetId) {
             executedActions.push('REPLY')
           }
         }

@@ -257,6 +257,13 @@ export class XAutomationRunner {
       (a) => executedSet.has(a) && (a !== 'REPLY' || Boolean(replyTweetId))
     )
     if (finalActions.length === 0) {
+      activityLogger.append({
+        type: 'API_ERROR',
+        action: `推文 ${post.tweet_id} 未捕获有效互动结果，跳过后台上报`,
+        detail: plannedActions.includes('REPLY') && !replyTweetId
+          ? '未捕获到新评论的 reply_tweet_id（后台强制校验必填）'
+          : `计划动作: ${plannedActions.join(',')}`
+      })
       console.log(`[dsh-xlanv] 推文 ${post.tweet_id} 未完成有效页面互动，跳过上报`)
       return
     }
