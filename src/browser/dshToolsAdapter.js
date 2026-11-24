@@ -783,78 +783,108 @@ export class DshBrowserToolAdapter {
 
     let replyTweetId = ''
     const executedActions = []
+    const alreadyDoneOnPage = []
+
+    const getFocusedItems = async () => {
+      try {
+        const s = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"][tabindex="-1"]' })
+        return parseSnapshotItems(s)
+      } catch {
+        const s = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
+        return parseSnapshotItems(s)
+      }
+    }
 
     if (actions.includes('RETWEET')) {
-      const repostBtn = baseItems.find(
-        (item) =>
-          !item.disabled &&
-          item.role === 'button' &&
-          /\b(Repost|Retweet)\b|转帖|轉帖|转推|转发/i.test(item.name) &&
-          !/Undo|取消|已转/i.test(item.name)
+      const alreadyReposted = baseItems.some(
+        (item) => item.role === 'button' && /Undo\s*repost|Undo\s*retweet|取消转帖|已转帖|取消转发/i.test(item.name)
       )
-      if (repostBtn) {
-        await humanPause(1200, 2500)
-        await this.callTool('browser_click', { index: repostBtn.index })
-        await humanPause(1200, 2200)
-
-        let menuSnap = ''
-        try {
-          menuSnap = await this.callTool('browser_snapshot', { region: '[role="menu"]' })
-        } catch {
-          menuSnap = await this.callTool('browser_snapshot', { delta: true })
-        }
-        const menuItems = parseSnapshotItems(menuSnap)
-        let confirmRepost = menuItems.find(
+      if (alreadyReposted) {
+        alreadyDoneOnPage.push('RETWEET')
+      } else {
+        const repostBtn = baseItems.find(
           (item) =>
-            (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
-            (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
-            !/Quote|引用|Undo|取消/i.test(item.name)
+            !item.disabled &&
+            item.role === 'button' &&
+            /\b(Repost|Retweet)\b|转帖|轉帖|转推|转发/i.test(item.name) &&
+            !/Undo|取消|已转/i.test(item.name)
         )
-        if (!confirmRepost) {
-          const deltaSnap = await this.callTool('browser_snapshot', { delta: true })
-          confirmRepost = parseSnapshotItems(deltaSnap).find(
+        if (repostBtn) {
+          await humanPause(1200, 2500)
+          await this.callTool('browser_click', { index: repostBtn.index })
+          await humanPause(1200, 2200)
+
+          let menuSnap = ''
+          try {
+            menuSnap = await this.callTool('browser_snapshot', { region: '[role="menu"]' })
+          } catch {
+            menuSnap = await this.callTool('browser_snapshot', { delta: true })
+          }
+          const menuItems = parseSnapshotItems(menuSnap)
+          let confirmRepost = menuItems.find(
             (item) =>
               (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
               (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
               !/Quote|引用|Undo|取消/i.test(item.name)
           )
-        }
-        if (confirmRepost) {
-          await humanPause(900, 1800)
-          await this.callTool('browser_click', { index: confirmRepost.index })
-          await humanPause(1800, 3200)
-          executedActions.push('RETWEET')
-        } else {
-          // 若未找到确认项，按 Escape 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
-          try {
-            await this.callTool('browser_press', { key: 'Escape' })
-            await humanPause(600, 1200)
-          } catch {
-            // 忽略
+          if (!confirmRepost) {
+            const deltaSnap = await this.callTool('browser_snapshot', { delta: true })
+            confirmRepost = parseSnapshotItems(deltaSnap).find(
+              (item) =>
+                (item.role === 'menuitem' || item.role === 'button' || item.role === 'link') &&
+                (/^(Repost|Retweet)\b|转帖|轉帖|转发|转推/i.test(item.name.trim())) &&
+                !/Quote|引用|Undo|取消/i.test(item.name)
+            )
+          }
+          if (confirmRepost) {
+            await humanPause(900, 1800)
+            await this.callTool('browser_click', { index: confirmRepost.index })
+            await humanPause(1800, 3200)
+            executedActions.push('RETWEET')
+          } else {
+            // 若未找到确认项，按 Escape 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
+            try {
+              await this.callTool('browser_press', { key: 'Escape' })
+              await humanPause(600, 1200)
+            } catch {
+              // 忽略
+            }
           }
         }
       }
     }
 
+    // 若前面执行过 RETWEET，刷新一次聚焦卡片索引，防止 DOM 重绘导致索引偏移
+    const itemsBeforeLike = executedActions.includes('RETWEET') ? await getFocusedItems() : baseItems
+
     if (actions.includes('LIKE')) {
-      const likeBtn = baseItems.find(
-        (item) =>
-          !item.disabled &&
-          item.role === 'button' &&
-          /\b(Like)\b|喜欢|点赞/i.test(item.name) &&
-          !/Unlike|Liked|取消|已喜欢/i.test(item.name)
+      const alreadyLiked = itemsBeforeLike.some(
+        (item) => item.role === 'button' && /\b(Unlike|Liked)\b|取消喜欢|已喜欢|取消赞/i.test(item.name)
       )
-      if (likeBtn) {
-        await humanPause(1500, 2800)
-        await this.callTool('browser_click', { index: likeBtn.index })
-        await humanPause(1500, 2800)
-        executedActions.push('LIKE')
+      if (alreadyLiked) {
+        alreadyDoneOnPage.push('LIKE')
+      } else {
+        const likeBtn = itemsBeforeLike.find(
+          (item) =>
+            !item.disabled &&
+            item.role === 'button' &&
+            /\b(Like)\b|喜欢|点赞/i.test(item.name) &&
+            !/Unlike|Liked|取消|已喜欢/i.test(item.name)
+        )
+        if (likeBtn) {
+          await humanPause(1500, 2800)
+          await this.callTool('browser_click', { index: likeBtn.index })
+          await humanPause(1500, 2800)
+          executedActions.push('LIKE')
+        }
       }
     }
 
+    const itemsBeforeReply = executedActions.includes('LIKE') ? await getFocusedItems() : itemsBeforeLike
+
     if (actions.includes('REPLY') && replyText) {
       // 点击目标主帖内部的 Reply 按钮打开专属回复弹窗，确保 100% 回复给主帖而非其他评论
-      const replyTrigger = baseItems.find(
+      const replyTrigger = itemsBeforeReply.find(
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
@@ -896,12 +926,20 @@ export class DshBrowserToolAdapter {
       }
 
       if (inputBox) {
-        const preStatusIds = new Set(
-          baseItems
-            .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])
-            .filter(Boolean)
-        )
-        preStatusIds.add(String(tweetId))
+        // 用 main 区域采集提交前所有已有的 status ID，避免把下方旧评论误当成新回复
+        let preStatusIds = new Set([String(tweetId)])
+        try {
+          const preMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+          for (const i of parseSnapshotItems(preMainSnap)) {
+            const sid = i.href?.match(/\/status\/(\d+)/)?.[1]
+            if (sid) preStatusIds.add(sid)
+          }
+        } catch {
+          for (const i of baseItems) {
+            const sid = i.href?.match(/\/status\/(\d+)/)?.[1]
+            if (sid) preStatusIds.add(sid)
+          }
+        }
 
         await this.callTool('browser_type', {
           index: inputBox.index,
@@ -962,6 +1000,6 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    return { executedActions, replyTweetId }
+    return { executedActions, alreadyDoneOnPage, replyTweetId }
   }
 }

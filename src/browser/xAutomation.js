@@ -276,6 +276,10 @@ export class XAutomationRunner {
     })
     const replyTweetId = execRes?.replyTweetId || ''
     const executedSet = new Set(Array.isArray(execRes?.executedActions) ? execRes.executedActions : [])
+    if (Array.isArray(execRes?.alreadyDoneOnPage) && execRes.alreadyDoneOnPage.length > 0) {
+      // 页面上原本就已经点过的动作只记入本地去重缓存（不再重复点，也不向后台虚报积分）
+      this.recordInteracted(post.tweet_id, execRes.alreadyDoneOnPage)
+    }
 
     const finalActions = plannedActions.filter(
       (a) => executedSet.has(a) && (a !== 'REPLY' || Boolean(replyTweetId))
