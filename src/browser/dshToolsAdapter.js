@@ -81,6 +81,22 @@ function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId 
   return false
 }
 
+function stripDetailNoise(text = '', username = '') {
+  const cleanUser = String(username || '').replace(/^@/, '').trim()
+  let out = String(text || '').trim()
+  if (cleanUser) {
+    out = out.replace(new RegExp(`^.{0,80}?@${cleanUser}\\s+`, 'i'), '')
+  } else {
+    out = out.replace(/^.{0,80}?@[A-Za-z0-9_]+\s+/, '')
+  }
+  out = out
+    .replace(/(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日[\s\S]*$/i, '')
+    .replace(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
+    .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看)[\s\S]*$/i, '')
+    .trim()
+  return out
+}
+
 function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   const block = extractMainContentFromSnapshot(snapshotText)
   if (!block) return ''
@@ -131,18 +147,7 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
     filtered.push(line)
   }
 
-  let joined = unwrapUntrustedText(filtered.join(' '))
-  // 剥离单行合并后残留的头部「昵称 @username」与尾部「时间 · 日期 · 查看数」
-  if (cleanUser) {
-    joined = joined.replace(new RegExp(`^.{0,80}?@${cleanUser}\\s+`, 'i'), '')
-  } else {
-    joined = joined.replace(/^.{0,80}?@[A-Za-z0-9_]+\s+/, '')
-  }
-  joined = joined
-    .replace(/(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日[\s\S]*$/i, '')
-    .replace(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
-    .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看)[\s\S]*$/i, '')
-    .trim()
+  const joined = stripDetailNoise(unwrapUntrustedText(filtered.join(' ')), cleanUser)
   if (!joined || isPollutedChromeText(joined)) return ''
   return joined
 }
@@ -832,31 +837,39 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    const selectors = [
+    const preciseSelectors = [
       'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
       'article[data-testid="tweet"][tabindex="-1"] div[lang]',
       'article[data-testid="tweet"] [data-testid="tweetText"]',
       'article[data-testid="tweet"] div[lang]',
       '[data-testid="twitterArticleRichTextView"]',
-      '[data-testid="tweetText"]',
-      'article[data-testid="tweet"][tabindex="-1"]'
+      '[data-testid="tweetText"]'
     ]
 
     const readSelectors = async () => {
-      let text = ''
-      for (const sel of selectors) {
+      for (const sel of preciseSelectors) {
         try {
           const raw = await this.callTool('browser_get_text', { selector: sel })
           const cleaned = unwrapUntrustedText(raw)
-          if (cleaned && !isPollutedChromeText(cleaned) && cleaned.length > text.length) {
-            text = cleaned
-            if (text.length >= 15) break
+          if (cleaned && !isPollutedChromeText(cleaned)) {
+            return cleaned
           }
         } catch {
           // 尝试下一个选择器
         }
       }
-      return text
+      try {
+        const rawArticle = await this.callTool('browser_get_text', {
+          selector: 'article[data-testid="tweet"][tabindex="-1"]'
+        })
+        const cleanedArticle = stripDetailNoise(unwrapUntrustedText(rawArticle), username)
+        if (cleanedArticle && !isPollutedChromeText(cleanedArticle)) {
+          return cleanedArticle
+        }
+      } catch {
+        // 忽略
+      }
+      return ''
     }
 
     let bestText = await readSelectors()
