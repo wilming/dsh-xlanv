@@ -175,7 +175,7 @@ export class XAutomationRunner {
         detail: followRes?.already_followed ? '重复关注不重复计分' : '新关注 +1 分'
       })
       console.log(`[dsh-xlanv] 已关注 @${member.x_username} 并完成 +1/-1 积分回传`)
-      await sleep(randomInt(4000, 9000))
+      await sleep(randomInt(8000, 16000))
     }
   }
 
@@ -322,9 +322,9 @@ export class XAutomationRunner {
     await this.ensureFollowedSynced()
     await this.runRecommendFollowCycle()
 
-    // 仅在 Home 页面的 For You 和 Following 两个信息流巡检，每次最多下滑采集 20 条
+    // 仅在 Home 页面的 For You 和 Following 两个信息流巡检，每个页面各采集约 10 条（共约 20 条）
     if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
-      const timelineTweets = await this.browser.scanTimelineTweets(20)
+      const timelineTweets = await this.browser.scanTimelineTweets(10)
       const candidates = timelineTweets.filter((t) => !this.isOwnPost(t)).slice(0, 20)
       if (candidates.length > 0) {
         const checkItems = candidates.map((t) => ({
@@ -371,7 +371,7 @@ export class XAutomationRunner {
       } catch (err) {
         console.error('[dsh-xlanv] 本轮巡检异常:', err.message)
       }
-      const pollMs = Math.max(5, Number(this.config.loopPollIntervalSeconds || 15)) * 1000
+      const pollMs = Math.max(60, Number(this.config.loopPollIntervalSeconds || 60)) * 1000
       await sleep(pollMs)
     }
   }

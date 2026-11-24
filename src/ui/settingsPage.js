@@ -371,8 +371,8 @@ function buildSettingsHtml() {
               <input id="recommendFollowIntervalMinutes" type="number" min="10" max="1440" />
             </div>
             <div>
-              <label for="loopPollIntervalSeconds">主巡检轮询间隔（秒）</label>
-              <input id="loopPollIntervalSeconds" type="number" min="5" max="600" />
+              <label for="loopPollIntervalSeconds">主巡检轮询间隔（秒，最低 60s）</label>
+              <input id="loopPollIntervalSeconds" type="number" min="60" max="3600" />
             </div>
           </div>
         </div>
@@ -501,7 +501,7 @@ function buildSettingsHtml() {
       $('dwellMinSeconds').value = Math.round((cfg.timing?.dwellMinMs ?? 5000) / 1000)
       $('dwellMaxSeconds').value = Math.round((cfg.timing?.dwellMaxMs ?? 12000) / 1000)
       $('recommendFollowIntervalMinutes').value = Math.round((cfg.timing?.recommendFollowIntervalMs ?? 3600000) / 60000)
-      $('loopPollIntervalSeconds').value = cfg.loopPollIntervalSeconds ?? 15
+      $('loopPollIntervalSeconds').value = Math.max(60, cfg.loopPollIntervalSeconds ?? 60)
       $('enableRetweet').checked = cfg.actions?.retweet !== false
       $('enableReply').checked = cfg.actions?.reply !== false
       $('enableLike').checked = cfg.actions?.like !== false
@@ -539,7 +539,7 @@ function buildSettingsHtml() {
         dwellMinSeconds: Number($('dwellMinSeconds').value),
         dwellMaxSeconds: Number($('dwellMaxSeconds').value),
         recommendFollowIntervalMinutes: Number($('recommendFollowIntervalMinutes').value),
-        loopPollIntervalSeconds: Number($('loopPollIntervalSeconds').value),
+        loopPollIntervalSeconds: Math.max(60, Number($('loopPollIntervalSeconds').value || 60)),
         enableRetweet: $('enableRetweet').checked,
         enableReply: $('enableReply').checked,
         enableLike: $('enableLike').checked

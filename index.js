@@ -101,10 +101,10 @@ export const Config = z.object({
       loopPollIntervalSeconds: z
         .number()
         .step(1)
-        .min(5)
-        .max(600)
-        .default(15)
-        .description('主巡检循环的轮询检查间隔（秒）。'),
+        .min(60)
+        .max(3600)
+        .default(60)
+        .description('主巡检循环的轮询检查间隔（秒），最低 60 秒。'),
       enableRetweet: z
         .boolean()
         .default(true)

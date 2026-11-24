@@ -38,7 +38,7 @@ const DEFAULT_CONFIG = {
   confirmTimeoutSeconds: 20,
   activeStartHour: 0,
   activeEndHour: 24,
-  loopPollIntervalSeconds: 15,
+  loopPollIntervalSeconds: 60,
   actions: {
     retweet: true,
     reply: true,
@@ -124,6 +124,12 @@ export function loadConfig(overrides = {}) {
   if (process.env.XLANV_BASE_URL) merged.baseUrl = process.env.XLANV_BASE_URL
   if (process.env.XLANV_API_SECRET) merged.apiSecret = process.env.XLANV_API_SECRET
   if (process.env.XLANV_MODE) merged.mode = process.env.XLANV_MODE
+
+  if (typeof merged.loopPollIntervalSeconds === 'number') {
+    merged.loopPollIntervalSeconds = Math.max(60, merged.loopPollIntervalSeconds)
+  } else {
+    merged.loopPollIntervalSeconds = 60
+  }
 
   if (typeof merged.customPrompt === 'string') {
     merged.customPrompt = merged.customPrompt.trim().slice(0, 1000)
