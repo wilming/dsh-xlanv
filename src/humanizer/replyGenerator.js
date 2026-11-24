@@ -66,16 +66,28 @@ export function deAiTone(rawText, options = {}) {
   return text.trim()
 }
 
+function isTimestampLike(str) {
+  const s = String(str || '').trim()
+  if (!s) return true
+  return (
+    /^\d+\s*[smhd]$/i.test(s) ||
+    /^\d+\s*(秒|分钟?|小时|天)前?$/.test(s) ||
+    /^(?:\d{4}[年/-])?\d{1,2}[月/-]\d{1,2}日?$/.test(s) ||
+    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?$/i.test(s) ||
+    /^\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*·.*)?$/i.test(s)
+  )
+}
+
 function extractKeyword(postContent) {
   const cleaned = String(postContent || '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[@#]\S+/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!cleaned) return ''
+  if (!cleaned || isTimestampLike(cleaned)) return ''
   // 截取一段核心短语用于结合原帖内容
   const slice = cleaned.slice(0, 14)
-  return slice.length >= 4 ? slice : ''
+  return slice.length >= 4 && !isTimestampLike(slice) ? slice : ''
 }
 
 function buildFallbackHumanReply(postContent) {
@@ -122,8 +134,9 @@ export function extractPurePostText(rawContent, maxLen = 180) {
   text = text
     .replace(/(?:\n|\s)(?:Quote|Quoted|引用推文|引用|查看引用)[\s\S]*$/i, '')
     .replace(/(?:Show more|显示更多|Translate post|翻译帖子)/gi, ' ')
-  // 3. 合并空白并严格截断长度（不提交长文）
+  // 3. 合并空白并严格截断长度（不提交长文），若是纯时间戳则置空
   text = text.replace(/\s+/g, ' ').trim()
+  if (isTimestampLike(text)) return ''
   if (text.length > maxLen) {
     text = text.slice(0, maxLen)
   }

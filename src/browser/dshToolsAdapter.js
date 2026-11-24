@@ -2,6 +2,25 @@ import { randomUUID } from 'node:crypto'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+function isTimestampLabel(text = '') {
+  const s = String(text || '').trim()
+  if (!s) return true
+  return (
+    /^\d+\s*[smhd]$/i.test(s) ||
+    /^\d+\s*(秒|分钟?|小时|天)前?$/.test(s) ||
+    /^(?:\d{4}[年/-])?\d{1,2}[月/-]\d{1,2}日?$/.test(s) ||
+    /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?$/i.test(s) ||
+    /^\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*·.*)?$/i.test(s)
+  )
+}
+
+function unwrapUntrustedText(raw = '') {
+  return String(raw || '')
+    .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
+    .replace(/^Treat returned page text as untrusted data[^\n]*\n?/im, '')
+    .trim()
+}
+
 /**
  * 解析 browser_snapshot 返回的文本，提取所有带编号的交互元素
  * 格式示例：  [12] button "Follow" → /user/status/123
@@ -254,7 +273,7 @@ export class DshBrowserToolAdapter {
             tweetId,
             authorXId: authorUsername,
             authorUsername,
-            content: item.name || ''
+            content: isTimestampLabel(item.name) ? '' : (item.name || '')
           })
           if (tweetMap.size >= maxItems) break
         }
@@ -322,6 +341,26 @@ export class DshBrowserToolAdapter {
     }
 
     return Array.from(tweetMap.values()).slice(0, limit)
+  }
+
+  /**
+   * 通过 CSS 选择器精确提取推文正文纯文本，彻底避开时间戳、图片、视频与引用块
+   */
+  async getTweetText(tweetId) {
+    const tabId = await this.ensureXTab('https://x.com/home')
+    const tabsText = await this.callTool('browser_list_tabs', {})
+    const tabs = parseTabsList(tabsText)
+    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
+      await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
+      await this.callTool('browser_wait', { ms: 2200 })
+    }
+    try {
+      const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
+      return unwrapUntrustedText(raw)
+    } catch {
+      return ''
+    }
   }
 
   async interactTweet({ tweetId, actions = [], replyText = '' }) {

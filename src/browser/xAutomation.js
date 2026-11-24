@@ -205,7 +205,11 @@ export class XAutomationRunner {
 
     let replyText = ''
     if (plannedActions.includes('REPLY')) {
-      replyText = await generateHumanReply(post.content || '', this.llm, {
+      let postText = post.content || ''
+      if (!postText && this.browser && typeof this.browser.getTweetText === 'function') {
+        postText = await this.browser.getTweetText(post.tweet_id)
+      }
+      replyText = await generateHumanReply(postText, this.llm, {
         ...(this.config.humanReply || {}),
         customPrompt: this.config.customPrompt || ''
       })
