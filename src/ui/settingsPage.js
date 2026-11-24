@@ -686,34 +686,50 @@ function buildSettingsHtml() {
 
     async function loadLogs(refreshProfile = false) {
       const type = $('logTypeFilter').value
-      const res = await fetch('/xlanv/api/logs?type=' + encodeURIComponent(type) + '&refresh=' + (refreshProfile ? '1' : '0'))
-      const data = await res.json()
-      $('logSummary').textContent = '今日累计获得 +' + (data.todayEarned || 0) + ' 积分 | 共 ' + (data.totalCount || 0) + ' 条记录'
-      if (typeof data.lastKnownPoints === 'number') {
-        $('badgePoints').textContent = '积分: ' + data.lastKnownPoints
+      if (refreshProfile) {
+        $('logSummary').textContent = '正在请求后台同步最新积分与日志...'
+        $('btnRefreshLogs').disabled = true
       }
-      const items = data.items || []
-      if (items.length === 0) {
-        $('logList').innerHTML = '<div style="color:#64748b;padding:12px;">暂无符合条件的操作日志</div>'
-        return
-      }
-      $('logList').innerHTML = items.map((l) => {
-        const t = new Date(l.time).toLocaleString('zh-CN', { hour12: false })
-        const ptsText = l.pointsDelta > 0 ? ('+' + l.pointsDelta + ' 分') : (l.pointsDelta < 0 ? (l.pointsDelta + ' 分') : '')
-        const balText = typeof l.currentPoints === 'number' ? (' | 余额: ' + l.currentPoints) : ''
-        const apiText = l.api ? (l.api + (l.status ? ' [' + l.status + ']' : '') + (l.durationMs ? ' ' + l.durationMs + 'ms' : '')) : ''
-        return \`
-          <div class="log-row">
-            <div class="log-top">
-              <span class="log-time">[\${t}]</span>
-              <span class="log-type t-\${l.type}">\${l.type}</span>
-              <span>\${(l.action || '').replace(/</g, '&lt;')}</span>
-              \${ptsText ? \`<span class="log-pts">\${ptsText}\${balText}</span>\` : (balText ? \`<span class="log-api">\${balText}</span>\` : '')}
+      try {
+        const res = await fetch('/xlanv/api/logs?type=' + encodeURIComponent(type) + '&refresh=' + (refreshProfile ? '1' : '0'))
+        const data = await res.json()
+        let summaryText = '今日累计获得 +' + (data.todayEarned || 0) + ' 积分 | 共 ' + (data.totalCount || 0) + ' 条记录'
+        if (data.profileError) {
+          summaryText += ' | ⚠ 积分同步失败: ' + data.profileError
+        } else if (refreshProfile && typeof data.lastKnownPoints === 'number') {
+          summaryText += ' | ✓ 积分已同步: ' + data.lastKnownPoints
+        }
+        $('logSummary').textContent = summaryText
+        if (typeof data.lastKnownPoints === 'number') {
+          $('badgePoints').textContent = '积分: ' + data.lastKnownPoints
+        }
+        const items = data.items || []
+        if (items.length === 0) {
+          $('logList').innerHTML = '<div style="color:#64748b;padding:12px;">暂无符合条件的操作日志</div>'
+          return
+        }
+        $('logList').innerHTML = items.map((l) => {
+          const t = new Date(l.time).toLocaleString('zh-CN', { hour12: false })
+          const ptsText = l.pointsDelta > 0 ? ('+' + l.pointsDelta + ' 分') : (l.pointsDelta < 0 ? (l.pointsDelta + ' 分') : '')
+          const balText = typeof l.currentPoints === 'number' ? (' | 余额: ' + l.currentPoints) : ''
+          const apiText = l.api ? (l.api + (l.status ? ' [' + l.status + ']' : '') + (l.durationMs ? ' ' + l.durationMs + 'ms' : '')) : ''
+          return \`
+            <div class="log-row">
+              <div class="log-top">
+                <span class="log-time">[\${t}]</span>
+                <span class="log-type t-\${l.type}">\${l.type}</span>
+                <span>\${(l.action || '').replace(/</g, '&lt;')}</span>
+                \${ptsText ? \`<span class="log-pts">\${ptsText}\${balText}</span>\` : (balText ? \`<span class="log-api">\${balText}</span>\` : '')}
+              </div>
+              \${apiText || l.detail ? \`<div class="log-api">\${apiText}\${apiText && l.detail ? ' — ' : ''}\${(l.detail || '').replace(/</g, '&lt;')}</div>\` : ''}
             </div>
-            \${apiText || l.detail ? \`<div class="log-api">\${apiText}\${apiText && l.detail ? ' — ' : ''}\${(l.detail || '').replace(/</g, '&lt;')}</div>\` : ''}
-          </div>
-        \`
-      }).join('')
+          \`
+        }).join('')
+      } finally {
+        if (refreshProfile) {
+          $('btnRefreshLogs').disabled = false
+        }
+      }
     }
 
     $('logTypeFilter').addEventListener('change', () => loadLogs(false))
@@ -991,17 +1007,25 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
       if (req.method === 'GET' && pathname === '/xlanv/api/logs') {
         const type = reqUrl.searchParams.get('type') || 'ALL'
         const refresh = reqUrl.searchParams.get('refresh') === '1'
-        if (refresh && isValidApiSecret(runner.config.apiSecret)) {
-          try {
-            const prof = await client.getProfile()
-            if (typeof prof?.points === 'number') {
-              activityLogger.setCurrentPoints(prof.points)
+        let profileError = ''
+        if (refresh) {
+          if (!isValidApiSecret(runner.config.apiSecret)) {
+            profileError = '未配置有效 api_secret'
+          } else {
+            try {
+              const prof = await client.getProfile()
+              if (typeof prof?.points === 'number') {
+                activityLogger.setCurrentPoints(prof.points)
+              }
+            } catch (err) {
+              profileError = err.message || '请求后台失败'
             }
-          } catch {
-            // 忽略临时网络波动
           }
         }
-        sendJson(res, 200, activityLogger.list({ type, limit: 200 }))
+        sendJson(res, 200, {
+          ...activityLogger.list({ type, limit: 200 }),
+          profileError
+        })
         return
       }
 
