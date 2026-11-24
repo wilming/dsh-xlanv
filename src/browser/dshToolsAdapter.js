@@ -58,13 +58,13 @@ function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId 
   if (!raw) return false
   const cleanLower = String(cleanUser || '').replace(/^@/, '').toLowerCase()
 
-  // 1. 仅在主帖底部回复框（「发布你的回复 / Post your reply」或 /analytics）之前的区域检测「Replying to @xxx」或「回复 @xxx」，
-  //    避免把主帖下方内嵌回复输入框的「回复 @作者」误判为回复帖！
-  const composerSplitRe = tweetId
-    ? new RegExp(`(?:Post your reply|发布你的回复|Add another post|添加另一个帖子|\\/${tweetId}\\/analytics)`, 'i')
-    : /(?:Post your reply|发布你的回复|Add another post|添加另一个帖子)/i
-  const headSection = raw.split(composerSplitRe)[0] || ''
-  if (/(?:Replying to|回复)\s+@[A-Za-z0-9_]+/i.test(headSection)) {
+  // 1. 仅在 Main content 中「推文详情时间戳（如 11:27 · 2026年11月24日 / 11:27 AM · Nov 24, 2026）」之前的正文头部区域
+  //    检测「Replying to @xxx」或「回复 @xxx」，彻底避开主帖下方内嵌回复输入框的「回复 @作者」以及 Interactive 区块
+  const mainBlock = extractMainContentFromSnapshot(raw)
+  const tsSplitRe =
+    /(?:(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4})/i
+  const beforeTimestamp = mainBlock ? mainBlock.split(tsSplitRe)[0] || '' : ''
+  if (/(?:Replying to|回复)\s+@[A-Za-z0-9_]+/i.test(beforeTimestamp)) {
     return true
   }
 
