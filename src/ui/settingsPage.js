@@ -519,6 +519,28 @@ function buildSettingsHtml() {
       $('cfgPath').textContent = '配置文件: ' + data.status.configPath
     }
 
+    $('enabled').addEventListener('change', async () => {
+      const msg = $('saveMsg')
+      const nextEnabled = $('enabled').checked
+      msg.textContent = nextEnabled ? ' 正在开启总开关...' : ' 正在关闭总开关并停止巡检...'
+      msg.className = 'msg'
+      try {
+        const res = await fetch('/xlanv/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: nextEnabled })
+        })
+        const out = await res.json()
+        if (!res.ok) throw new Error(out.error || '切换总开关失败')
+        msg.textContent = nextEnabled ? ' ✓ 已开启自动互助巡检' : ' ✓ 已关闭总开关，巡检已停止'
+        msg.className = 'msg ok'
+        await loadStatus()
+      } catch (err) {
+        msg.textContent = ' ✗ ' + err.message
+        msg.className = 'msg err'
+      }
+    })
+
     $('cfgForm').addEventListener('submit', async (e) => {
       e.preventDefault()
       const msg = $('saveMsg')
@@ -815,8 +837,8 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
           client.apiSecret = next.apiSecret
           activityLogger.append({
             type: 'SYSTEM',
-            action: '更新插件配置并热重载',
-            detail: `模式: ${next.mode} | 运行时段: ${next.activeStartHour}-${next.activeEndHour}点`
+            action: next.enabled === false ? '已关闭总开关，停止自动巡检' : '更新插件配置并热重载',
+            detail: `总开关: ${next.enabled === false ? '关闭' : '开启'} | 模式: ${next.mode} | 运行时段: ${next.activeStartHour}-${next.activeEndHour}点`
           })
           if (typeof onConfigUpdated === 'function') {
             onConfigUpdated(next)

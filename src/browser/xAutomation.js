@@ -204,7 +204,12 @@ export class XAutomationRunner {
     return planned
   }
 
+  isStopped() {
+    return !this.running || this.config.enabled === false
+  }
+
   async handleCandidatePost(post) {
+    if (this.isStopped()) return false
     // 铁律：绝不对自己的主帖执行任何转推、评论或点赞
     if (this.isOwnPost(post)) {
       return false
@@ -216,6 +221,7 @@ export class XAutomationRunner {
     // 1. 拟人化视口停留 5~12 秒
     const dwellMs = randomInt(this.config.timing.dwellMinMs, this.config.timing.dwellMaxMs)
     await sleep(dwellMs)
+    if (this.isStopped()) return false
 
     let replyText = ''
     if (plannedActions.includes('REPLY')) {
@@ -350,20 +356,23 @@ export class XAutomationRunner {
   }
 
   async runOnce() {
-    if (this.config.enabled === false) {
+    if (this.isStopped()) {
       return
     }
     if (!this.isWithinActiveHours()) {
       return
     }
     await this.ensureMyProfile()
+    if (this.isStopped()) return
     await this.ensureFollowedSynced()
+    if (this.isStopped()) return
     await this.runRecommendFollowCycle()
+    if (this.isStopped()) return
 
     // 拟人化“边刷边看”：只在 Home 的 For You 和 Following 各刷约 10 条，看到一条即校验一条
     if (this.browser && typeof this.browser.browseHomeFeeds === 'function') {
       await this.browser.browseHomeFeeds(10, async (t) => {
-        if (!this.running) return false
+        if (this.isStopped()) return false
         if (this.isOwnPost(t)) return false
         // 本地预先去重：若该推文所有已启用的动作都在本地记录已完成，直接跳过连接口都不请求
         if (this.buildPlannedActions(t.tweetId).length === 0) return false
@@ -395,7 +404,7 @@ export class XAutomationRunner {
         const tweetMap = new Map(candidates.map((t) => [t.tweetId, t]))
 
         for (const item of checkRes.items || []) {
-          if (!this.running) break
+          if (this.isStopped()) break
           if (!item.is_promoted || item.author_points <= 0) continue
 
           const rawTweet = tweetMap.get(item.tweet_id) || {}
