@@ -56,8 +56,16 @@ export function parseTweetMetricsFromItems(items = []) {
   for (const item of items) {
     if (item.role !== 'button' && item.role !== 'link') continue
     const name = String(item.name || '').trim()
-    const numMatch = name.match(/(\d[\d,]*)/)
-    const count = numMatch ? Number(numMatch[1].replace(/,/g, '')) : 0
+    const numMatch = name.match(/(\d+(?:[.,]\d+)?)\s*([KM万亿])?/i)
+    let count = 0
+    if (numMatch) {
+      const base = Number(numMatch[1].replace(/,/g, ''))
+      const unit = (numMatch[2] || '').toUpperCase()
+      if (unit === 'K') count = Math.round(base * 1000)
+      else if (unit === 'M') count = Math.round(base * 1000000)
+      else if (unit === '万') count = Math.round(base * 10000)
+      else count = Math.round(base)
+    }
     if (/\b(Replies|Reply|回复)\b/i.test(name)) {
       metrics.x_replies = Math.max(metrics.x_replies, count)
     } else if (/\b(Reposts?|Retweets?|转帖|转推|转发)\b/i.test(name)) {
