@@ -836,7 +836,17 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
         let scrapedTweets = []
         if (refresh && xUsername && runner.browser && typeof runner.browser.scanProfileTweets === 'function') {
           try {
-            scrapedTweets = await runner.browser.scanProfileTweets(xUsername, 10)
+            const currentStore = loadPromotedPostsStore()
+            const existingContentMap = new Map()
+            for (const p of currentStore.posts || []) {
+              const txt = String(p?.content || '').trim()
+              const bad =
+                !txt ||
+                /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(txt) ||
+                /@[A-Za-z0-9_]+\s*·/i.test(txt)
+              if (!bad) existingContentMap.set(String(p.tweet_id), txt)
+            }
+            scrapedTweets = await runner.browser.scanProfileTweets(xUsername, 10, existingContentMap)
           } catch (err) {
             scrapeError = err.message
           }

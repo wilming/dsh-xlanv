@@ -90,12 +90,14 @@ export function mergePromotedPosts({ scrapedTweets = [], remotePosts = [] }) {
 
     if (map.has(tid)) {
       const existing = map.get(tid)
-      const isOldTimestamp = /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(
-        String(existing.content || '').trim()
-      )
-      if ((!existing.content || isOldTimestamp) && t.content) {
+      const prevText = String(existing.content || '').trim()
+      const isPollutedOrTimestamp =
+        !prevText ||
+        /^\d+\s*(?:[smhd]|(?:seconds?|minutes?|hours?|days?)\s+ago|(?:秒|分钟?|小时|天)前?)$/i.test(prevText) ||
+        /@[A-Za-z0-9_]+\s*·\s*(?:\d+[smhd]|\d+\s*(?:hour|minute|second|day))/i.test(prevText)
+      if (t.content && (isPollutedOrTimestamp || prevText.length < 10)) {
         existing.content = t.content
-      } else if (isOldTimestamp && !t.content) {
+      } else if (isPollutedOrTimestamp && !t.content) {
         existing.content = ''
       }
       if (remote) {

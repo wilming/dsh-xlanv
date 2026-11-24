@@ -92,6 +92,8 @@ function extractKeyword(postContent) {
   return slice.length >= 4 && !isTimestampLike(slice) ? slice : ''
 }
 
+let lastFallbackIndex = -1
+
 function buildFallbackHumanReply(postContent) {
   const kw = extractKeyword(postContent)
   const subjectiveOpeners = [
@@ -110,15 +112,22 @@ function buildFallbackHumanReply(postContent) {
         `${opener} 看到你说的「${kw}」我也有同感 之前踩过类似的坑`,
         `${opener} 「${kw}」这点确实挺关键的 不过实际落地还得看节奏`,
         `${opener} 关于「${kw}」我之前也纠结过 后来发现还是得自己试一遍才行`,
-        `${opener} 你聊到「${kw}」算是说到点子上了 很多人根本没注意到这层`
+        `${opener} 你聊到「${kw}」算是说到点子上了 很多人根本没注意到这层`,
+        `${opener} 「${kw}」这个切入点很实在 我最近也在关注这块`
       ]
     : [
         `${opener} 这事儿确实不能只看表面 自己跑一遍才有体感`,
         `${opener} 挺认同这个判断的 不过每个人节奏不太一样`,
-        `${opener} 刷到你这条刚好想到我前两天也遇到差不多的情况`
+        `${opener} 刷到你这条刚好想到我前两天也遇到差不多的情况`,
+        `${opener} 确实是这样 很多细节只有真上手了才体会得到`
       ]
 
-  return templates[randomInt(0, templates.length - 1)]
+  let idx = randomInt(0, templates.length - 1)
+  if (templates.length > 1 && idx === lastFallbackIndex) {
+    idx = (idx + 1) % templates.length
+  }
+  lastFallbackIndex = idx
+  return templates[idx]
 }
 
 /**
@@ -146,26 +155,64 @@ export function extractPurePostText(rawContent, maxLen = 180) {
 }
 
 /**
+ * 调用 DSH llm 服务生成文本（兼容 @deepseek-ai/dsh-llm 的 stream() 与旧式 chat()）
+ */
+async function callDshLlm(llm, systemPrompt, userPrompt) {
+  if (!llm) return ''
+
+  if (typeof llm.stream === 'function') {
+    const providers = typeof llm.listProviders === 'function' ? llm.listProviders() : []
+    const provider = providers?.[0]?.id || 'deepseek'
+    const model = 'deepseek-chat'
+    let out = ''
+    for await (const chunk of llm.stream({
+      provider,
+      model,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: userPrompt }]
+        }
+      ]
+    })) {
+      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
+        out += chunk.text
+      }
+    }
+    return out.trim()
+  }
+
+  if (typeof llm.chat === 'function') {
+    return String(await llm.chat(`${systemPrompt}\n${userPrompt}`)).trim()
+  }
+
+  return ''
+}
+
+/**
  * 结合原帖内容生成去 AI 味的拟人化评论
- * 若传入 DSH 的 llm.chat 接口则优先调用大模型 + 规则二次清洗
+ * 若传入 DSH 的 llm 服务则优先调用大模型 + 规则二次清洗
  */
 export async function generateHumanReply(postContent, llm = null, options = {}) {
   let raw = ''
   const compactContent = extractPurePostText(postContent, 180)
 
-  if (llm && typeof llm.chat === 'function') {
+  if (llm && (typeof llm.stream === 'function' || typeof llm.chat === 'function')) {
     const customPrompt = String(options.customPrompt || '').trim().slice(0, 1000)
-    const promptLines = [
-      '你是真实X蓝V用户，结合原帖写12~35字口语短评（表达主观感受，禁破折号与AI套话，末尾无标点）：'
+    const systemLines = [
+      '你是真实X蓝V用户，根据原帖写12~35字口语短评。必须紧扣原帖具体内容表达主观感受，严禁套话、严禁破折号、严禁重复模板，末尾不加标点。'
     ]
     if (customPrompt) {
-      promptLines.push(`人设要求：${customPrompt}`)
+      systemLines.push(`人设与额外要求：${customPrompt}`)
     }
-    promptLines.push(`原帖：${compactContent}`)
-    const prompt = promptLines.join('\n')
+    const systemPrompt = systemLines.join('\n')
+    const userPrompt = compactContent
+      ? `原帖内容：${compactContent}\n请直接输出一条简短自然的评论：`
+      : '请输出一条简短自然、不带标点的日常互动短评：'
 
     try {
-      raw = await llm.chat(prompt)
+      raw = await callDshLlm(llm, systemPrompt, userPrompt)
     } catch (err) {
       console.warn('[dsh-xlanv] LLM 生成失败，切换本地拟人模板:', err.message)
     }

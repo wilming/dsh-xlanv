@@ -387,9 +387,11 @@ export class DshBrowserToolAdapter {
   }
 
   /**
-   * 抓取本人 X 主页的前 10 条原创帖子，用于帖子推广管理页与本地配置合并
+   * 抓取本人 X 主页的前 10 条原创帖子：
+   * 1. 先翻页收集最多 10 个去重 tweetId（最多下滑 6 次，确保抓够 10 条）
+   * 2. 对本地尚无干净正文的新帖，逐条进入推文页用 [data-testid="tweetText"] 精准提取正文，彻底杜绝串行错位与重复
    */
-  async scanProfileTweets(xUsername, limit = 10) {
+  async scanProfileTweets(xUsername, limit = 10, existingContentMap = new Map()) {
     const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
     if (!cleanUser) {
       throw new Error('未提供 X 用户名，无法抓取个人主页帖子')
@@ -403,44 +405,72 @@ export class DshBrowserToolAdapter {
       await this.callTool('browser_wait', { ms: 2500 })
     }
 
-    const tweetMap = new Map()
+    const tweetIds = []
+    const seen = new Set()
     const statusRe = new RegExp(
       `(?:https?:\\/\\/(?:www\\.)?(?:x|twitter)\\.com)?\\/${cleanUser}\\/status\\/(\\d+)(?:$|[?#])`,
       'i'
     )
 
-    for (let round = 0; round < 3 && tweetMap.size < limit; round++) {
-      // 必须传 region: 'main'，避免左侧栏与右侧热搜占用 60 个元素额度
+    let emptyRounds = 0
+    for (let round = 0; round < 6 && tweetIds.length < limit; round++) {
       const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
       const items = parseSnapshotItems(snapshot)
-      const snippets = extractTweetSnippetsFromMain(snapshot, cleanUser)
-      let snippetIdx = 0
+      let addedThisRound = 0
 
       for (const item of items) {
         if (!item.href) continue
         const m = item.href.match(statusRe)
         if (!m) continue
         const tweetId = m[1]
-        if (!tweetMap.has(tweetId)) {
-          const itemName = isTimestampLabel(item.name) ? '' : (item.name || '')
-          const snippet = snippets[snippetIdx] || ''
-          snippetIdx++
-          tweetMap.set(tweetId, {
-            tweetId,
-            authorUsername: cleanUser,
-            content: itemName || snippet,
-            url: `https://x.com/${cleanUser}/status/${tweetId}`
-          })
-          if (tweetMap.size >= limit) break
+        if (!seen.has(tweetId)) {
+          seen.add(tweetId)
+          tweetIds.push(tweetId)
+          addedThisRound++
+          if (tweetIds.length >= limit) break
         }
       }
-      if (tweetMap.size < limit && round < 2) {
-        await this.callTool('browser_scroll', { direction: 'down', amount: 700 })
-        await sleep(1200)
+
+      if (tweetIds.length >= limit) break
+      if (addedThisRound === 0) {
+        emptyRounds++
+        if (emptyRounds >= 2) break
+      } else {
+        emptyRounds = 0
       }
+
+      await this.callTool('browser_scroll', { direction: 'down', amount: 900 })
+      await sleep(1100)
     }
 
-    return Array.from(tweetMap.values()).slice(0, limit)
+    const results = []
+    for (const tweetId of tweetIds.slice(0, limit)) {
+      let content = existingContentMap.get(tweetId) || ''
+      if (!content) {
+        try {
+          await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
+          try {
+            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"] [data-testid="tweetText"]', ms: 6000 })
+          } catch {
+            await this.callTool('browser_wait', { ms: 1800 })
+          }
+          const raw = await this.callTool('browser_get_text', {
+            selector: 'article[data-testid="tweet"] [data-testid="tweetText"]'
+          })
+          content = unwrapUntrustedText(raw).replace(/\s+/g, ' ').trim().slice(0, 180)
+        } catch {
+          content = ''
+        }
+      }
+      results.push({
+        tweetId,
+        authorUsername: cleanUser,
+        content,
+        url: `https://x.com/${cleanUser}/status/${tweetId}`
+      })
+    }
+
+    return results
   }
 
   /**
