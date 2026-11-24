@@ -725,18 +725,9 @@ export class DshBrowserToolAdapter {
       let metrics = { x_replies: 0, x_retweets: 0, x_likes: 0 }
       if (!content) {
         try {
-          await humanPause(1500, 2800)
+          await humanPause(1200, 2200)
           await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
-          try {
-            await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"][tabindex="-1"]', ms: 8000 })
-          } catch {
-            try {
-              await this.callTool('browser_wait', { selector: '[data-testid="tweetText"]', ms: 3000 })
-            } catch {
-              await humanPause(1800, 3000)
-            }
-          }
-          await humanPause(700, 1400)
+          await this.callTool('browser_wait', { ms: 2800 })
 
           // 确认当前标签页确实停留在该推文详情页，避免被重定向到 /home 抓出导航栏噪音或幽灵行
           const navTabs = parseTabsList(await this.callTool('browser_list_tabs', {}))
@@ -748,14 +739,6 @@ export class DshBrowserToolAdapter {
           const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
           if (isReplyOrThreadContinuation(focusedSnap, cleanUser, tweetId)) {
             continue
-          }
-          try {
-            const detailMainSnap = await this.callTool('browser_snapshot', { region: 'main' })
-            if (isReplyOrThreadContinuation(detailMainSnap, cleanUser, tweetId)) {
-              continue
-            }
-          } catch {
-            // 忽略 main 快照检测异常
           }
           if (focusedSnap) {
             metrics = parseTweetMetricsFromItems(parseSnapshotItems(focusedSnap))
@@ -791,22 +774,26 @@ export class DshBrowserToolAdapter {
    * 2. 依次尝试 tweetText、div[lang]、长文节点与聚焦 article 全文，最后用 Main content 快照兜底
    */
   async extractCurrentTweetText(username = '') {
-    let focusedSnap = ''
+    let mainSnap = ''
     try {
-      focusedSnap = await this.callTool('browser_snapshot', {
-        region: 'article[data-testid="tweet"][tabindex="-1"]'
-      })
+      mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
     } catch {
+      mainSnap = ''
+    }
+
+    // 若页面尚未渲染出正文或按钮，纯延时再拍一次快照（不使用会报超时的 selector 等待）
+    if (mainSnap && !extractTweetTextFromDetailSnapshot(mainSnap, username)) {
+      await this.callTool('browser_wait', { ms: 2000 })
       try {
-        focusedSnap = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
+        mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
       } catch {
-        focusedSnap = ''
+        // 保留旧快照
       }
     }
 
-    if (focusedSnap) {
-      const focusedItems = parseSnapshotItems(focusedSnap)
-      const showOriginalBtn = focusedItems.find(
+    if (mainSnap) {
+      const items = parseSnapshotItems(mainSnap)
+      const showOriginalBtn = items.find(
         (item) =>
           !item.disabled &&
           (item.role === 'button' || item.role === 'link') &&
@@ -815,62 +802,29 @@ export class DshBrowserToolAdapter {
       if (showOriginalBtn) {
         try {
           await this.callTool('browser_click', { index: showOriginalBtn.index })
-          try {
-            await this.callTool('browser_wait', {
-              selector: 'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
-              ms: 4000
-            })
-          } catch {
-            // 忽略等待超时
-          }
-          await humanPause(1000, 1800)
-          try {
-            focusedSnap = await this.callTool('browser_snapshot', {
-              region: 'article[data-testid="tweet"][tabindex="-1"]'
-            })
-          } catch {
-            focusedSnap = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
-          }
+          await this.callTool('browser_wait', { ms: 2200 })
+          mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
         } catch {
-          // 忽略还原点击失败，继续多级选择器兜底读取
+          // 忽略还原点击失败
         }
       }
     }
 
-    // 1. 优先直接从已获取的聚焦卡片快照（focusedSnap）提取正文，避免对不存在的选择器连续调用 browser_get_text 报错
-    let bestText = focusedSnap ? extractTweetTextFromDetailSnapshot(focusedSnap, username) : ''
+    let bestText = mainSnap ? extractTweetTextFromDetailSnapshot(mainSnap, username) : ''
 
-    // 2. 若聚焦快照未提取到正文，再尝试常用正文选择器（最多 2 个，避免无效报错刷屏）
-    if (!bestText) {
-      for (const sel of [
-        'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
-        'article[data-testid="tweet"] [data-testid="tweetText"]'
-      ]) {
-        try {
-          const raw = await this.callTool('browser_get_text', { selector: sel })
-          const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
-          if (cleaned && !isPollutedChromeText(cleaned)) {
-            bestText = cleaned
-            break
-          }
-        } catch {
-          // 忽略选择器未命中
-        }
-      }
-    }
-
-    // 3. 若仍为空，从 main 区域快照剥离导航噪音并提取正文
     if (!bestText) {
       try {
-        const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
-        if (!focusedSnap) focusedSnap = mainSnap
-        bestText = extractTweetTextFromDetailSnapshot(mainSnap, username)
+        const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
+        const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
+        if (cleaned && !isPollutedChromeText(cleaned)) {
+          bestText = cleaned
+        }
       } catch {
-        // 忽略快照异常
+        // 忽略未命中
       }
     }
 
-    return { text: bestText.slice(0, 350), focusedSnap }
+    return { text: bestText.slice(0, 350), focusedSnap: mainSnap }
   }
 
   /**
