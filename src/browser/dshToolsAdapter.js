@@ -1,4 +1,7 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
+
+const browserLockContext = new AsyncLocalStorage()
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
@@ -291,6 +294,27 @@ export class DshBrowserToolAdapter {
     this.tools = toolsRuntime
     this.attachedTabId = null
     this.homeFeedTab = 'foryou'
+    this._lockTail = Promise.resolve()
+  }
+
+  /**
+   * 可重入的浏览器互斥锁：防止“后台巡检”与“手动刷新帖子列表”同时抢占同一个 X 标签页导致互相跳转超时
+   */
+  async withBrowserLock(fn) {
+    if (browserLockContext.getStore() === this) {
+      return await fn()
+    }
+    const prev = this._lockTail
+    let release
+    this._lockTail = new Promise((resolve) => {
+      release = resolve
+    })
+    await prev
+    try {
+      return await browserLockContext.run(this, fn)
+    } finally {
+      release()
+    }
   }
 
   async callTool(name, args = {}) {
@@ -488,12 +512,8 @@ export class DshBrowserToolAdapter {
     } else {
       await this.callTool('browser_reload', {})
     }
-    try {
-      await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 9000 })
-    } catch {
-      await humanPause(3000, 5000)
-    }
-    await humanPause(3200, 5800)
+    await this.callTool('browser_wait', { ms: 3500 })
+    await humanPause(2000, 3500)
 
     const allTweets = new Map()
     const statusRe = /(?:https?:\/\/(?:www\.)?(?:x|twitter)\.com)?\/([A-Za-z0-9_]{1,30})\/status\/(\d+)/i
@@ -569,8 +589,9 @@ export class DshBrowserToolAdapter {
    * 看到一条即通过 onTweetSeen 实时校验一条，符合推广条件当场互动后再继续往下滑
    */
   async browseHomeFeeds(perFeedLimit = 10, onTweetSeen) {
-    const feedLimit = Math.min(12, Math.max(5, Number(perFeedLimit || 10)))
-    const tabId = await this.ensureXTab('https://x.com/home')
+    return await this.withBrowserLock(async () => {
+      const feedLimit = Math.min(12, Math.max(5, Number(perFeedLimit || 10)))
+      const tabId = await this.ensureXTab('https://x.com/home')
 
     const ensureOnHome = async (forceReload = false) => {
       const tabsText = await this.callTool('browser_list_tabs', {})
@@ -592,11 +613,7 @@ export class DshBrowserToolAdapter {
       } else if (forceReload) {
         await this.callTool('browser_reload', {})
       }
-      try {
-        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 9000 })
-      } catch {
-        await humanPause(2800, 4500)
-      }
+      await this.callTool('browser_wait', { ms: 3200 })
     }
 
     await ensureOnHome(true)
@@ -665,9 +682,10 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    await browseSingleFeed(/^(For you|为你推荐)$/i)
-    await humanPause(2800, 5200)
-    await browseSingleFeed(/^(Following|正在关注)$/i)
+      await browseSingleFeed(/^(For you|为你推荐)$/i)
+      await humanPause(2800, 5200)
+      await browseSingleFeed(/^(Following|正在关注)$/i)
+    })
   }
 
   /**
@@ -676,18 +694,15 @@ export class DshBrowserToolAdapter {
    * 2. 对本地尚无干净正文的新帖，逐条进入推文页用 [data-testid="tweetText"] 精准提取正文，彻底杜绝串行错位与重复
    */
   async scanProfileTweets(xUsername, limit = 10, existingContentMap = new Map()) {
-    const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
-    if (!cleanUser) {
-      throw new Error('未提供 X 用户名，无法抓取个人主页帖子')
-    }
+    return await this.withBrowserLock(async () => {
+      const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
+      if (!cleanUser) {
+        throw new Error('未提供 X 用户名，无法抓取个人主页帖子')
+      }
 
-    await this.ensureXTab(`https://x.com/${cleanUser}`)
-    await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
-    try {
-      await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
-    } catch {
-      await this.callTool('browser_wait', { ms: 2500 })
-    }
+      await this.ensureXTab(`https://x.com/${cleanUser}`)
+      await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
+      await this.callTool('browser_wait', { ms: 3200 })
 
     const tweetIds = []
     const seen = new Set()
@@ -776,7 +791,8 @@ export class DshBrowserToolAdapter {
       })
     }
 
-    return results
+      return results
+    })
   }
 
   /**
@@ -848,61 +864,51 @@ export class DshBrowserToolAdapter {
    * 精确提取推文正文纯文本
    */
   async getTweetText(tweetId) {
-    const tabId = await this.ensureXTab('https://x.com/home')
-    const tabsText = await this.callTool('browser_list_tabs', {})
-    const tabs = parseTabsList(tabsText)
-    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
-    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
-      await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      try {
-        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"]', ms: 8000 })
-      } catch {
-        await humanPause(2000, 3400)
+    return await this.withBrowserLock(async () => {
+      const tabId = await this.ensureXTab('https://x.com/home')
+      const tabsText = await this.callTool('browser_list_tabs', {})
+      const tabs = parseTabsList(tabsText)
+      const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+      if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
+        await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
+        await this.callTool('browser_wait', { ms: 2800 })
       }
-      await humanPause(900, 1600)
-    }
 
-    const { text } = await this.extractCurrentTweetText()
-    return text
+      const { text } = await this.extractCurrentTweetText()
+      return text
+    })
   }
 
   async interactTweet({ tweetId, actions = [], replyText = '' }) {
-    const tabId = await this.ensureXTab('https://x.com/home')
-    const tabsText = await this.callTool('browser_list_tabs', {})
-    const tabs = parseTabsList(tabsText)
-    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
-    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
-      await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
-      try {
-        await this.callTool('browser_wait', { selector: 'article[data-testid="tweet"][tabindex="-1"]', ms: 7000 })
-      } catch {
-        await humanPause(2200, 3800)
+    return await this.withBrowserLock(async () => {
+      const tabId = await this.ensureXTab('https://x.com/home')
+      const tabsText = await this.callTool('browser_list_tabs', {})
+      const tabs = parseTabsList(tabsText)
+      const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+      if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
+        await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
+        await this.callTool('browser_wait', { ms: 3000 })
+        await humanPause(1000, 1800)
       }
-      await humanPause(1200, 2400)
-    }
 
-    // 严格只快照目标主帖 article[tabindex="-1"]，绝不误操作上方父帖或下方评论区按钮
-    let snapshot = ''
-    try {
-      snapshot = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"][tabindex="-1"]' })
-    } catch {
-      snapshot = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
-    }
-    const baseItems = parseSnapshotItems(snapshot)
-
-    let replyTweetId = ''
-    const executedActions = []
-    const alreadyDoneOnPage = []
-
-    const getFocusedItems = async () => {
-      try {
-        const s = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"][tabindex="-1"]' })
-        return parseSnapshotItems(s)
-      } catch {
-        const s = await this.callTool('browser_snapshot', { region: 'article[data-testid="tweet"]' })
-        return parseSnapshotItems(s)
+      const getFocusedItems = async () => {
+        for (const region of ['article[data-testid="tweet"][tabindex="-1"]', 'article[data-testid="tweet"]', 'main']) {
+          try {
+            const s = await this.callTool('browser_snapshot', { region })
+            const items = parseSnapshotItems(s)
+            if (items.length > 0) return items
+          } catch {
+            // 尝试下一个 region
+          }
+        }
+        return []
       }
-    }
+
+      let baseItems = await getFocusedItems()
+      if (baseItems.length === 0) {
+        await this.callTool('browser_wait', { ms: 2200 })
+        baseItems = await getFocusedItems()
+      }
 
     if (actions.includes('RETWEET')) {
       const alreadyReposted = baseItems.some(
@@ -1121,6 +1127,7 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    return { executedActions, alreadyDoneOnPage, replyTweetId }
+      return { executedActions, alreadyDoneOnPage, replyTweetId }
+    })
   }
 }
