@@ -837,53 +837,29 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    const preciseSelectors = [
-      'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
-      'article[data-testid="tweet"][tabindex="-1"] div[lang]',
-      'article[data-testid="tweet"] [data-testid="tweetText"]',
-      'article[data-testid="tweet"] div[lang]',
-      '[data-testid="twitterArticleRichTextView"]',
-      '[data-testid="tweetText"]'
-    ]
+    // 1. 优先直接从已获取的聚焦卡片快照（focusedSnap）提取正文，避免对不存在的选择器连续调用 browser_get_text 报错
+    let bestText = focusedSnap ? extractTweetTextFromDetailSnapshot(focusedSnap, username) : ''
 
-    const readSelectors = async () => {
-      for (const sel of preciseSelectors) {
+    // 2. 若聚焦快照未提取到正文，再尝试常用正文选择器（最多 2 个，避免无效报错刷屏）
+    if (!bestText) {
+      for (const sel of [
+        'article[data-testid="tweet"][tabindex="-1"] [data-testid="tweetText"]',
+        'article[data-testid="tweet"] [data-testid="tweetText"]'
+      ]) {
         try {
           const raw = await this.callTool('browser_get_text', { selector: sel })
-          const cleaned = unwrapUntrustedText(raw)
+          const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
           if (cleaned && !isPollutedChromeText(cleaned)) {
-            return cleaned
+            bestText = cleaned
+            break
           }
         } catch {
-          // 尝试下一个选择器
+          // 忽略选择器未命中
         }
       }
-      try {
-        const rawArticle = await this.callTool('browser_get_text', {
-          selector: 'article[data-testid="tweet"][tabindex="-1"]'
-        })
-        const cleanedArticle = stripDetailNoise(unwrapUntrustedText(rawArticle), username)
-        if (cleanedArticle && !isPollutedChromeText(cleanedArticle)) {
-          return cleanedArticle
-        }
-      } catch {
-        // 忽略
-      }
-      return ''
     }
 
-    let bestText = await readSelectors()
-    if (!bestText) {
-      await humanPause(1200, 1800)
-      bestText = await readSelectors()
-    }
-
-    // 兜底：若 CSS 选择器均未取到，从聚焦卡片快照的 Main content 剥离导航噪音并提取正文
-    if (!bestText && focusedSnap) {
-      bestText = extractTweetTextFromDetailSnapshot(focusedSnap, username)
-    }
-
-    // 二级兜底：若聚焦快照仍为空，从 main 区域快照剥离导航噪音并提取正文
+    // 3. 若仍为空，从 main 区域快照剥离导航噪音并提取正文
     if (!bestText) {
       try {
         const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
