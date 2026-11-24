@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDataDir, isValidApiSecret, saveConfig } from '../config.js'
-import { generateHumanReply } from '../humanizer/replyGenerator.js'
+import { extractPurePostText, generateHumanReply } from '../humanizer/replyGenerator.js'
 import { activityLogger } from '../storage/activityLogger.js'
 import { confirmBeforeInteract, promptForApiSecret } from '../ui/confirmModal.js'
 
@@ -218,10 +218,23 @@ export class XAutomationRunner {
           postText = fetched
         }
       }
-      replyText = await generateHumanReply(postText, this.llm, {
-        ...(this.config.humanReply || {}),
-        customPrompt: this.config.customPrompt || ''
-      })
+      const pureText = extractPurePostText(postText, 350)
+      if (!pureText || pureText.length < 4) {
+        // 铁律：看不到原帖正文内容（含纯媒体、翻译遮挡等情况）时，绝不盲目发评论
+        const idx = plannedActions.indexOf('REPLY')
+        if (idx !== -1) plannedActions.splice(idx, 1)
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `跳过评论 ${post.tweet_id}：未读取到有效原帖正文`,
+          detail: '为避免盲目回复，无有效正文时不发送评论'
+        })
+        if (plannedActions.length === 0) return false
+      } else {
+        replyText = await generateHumanReply(pureText, this.llm, {
+          ...(this.config.humanReply || {}),
+          customPrompt: this.config.customPrompt || ''
+        })
+      }
     }
 
     // 2. 弹窗倒计时 20 秒确认（半自动模式下人工可干预，超时自动执行）

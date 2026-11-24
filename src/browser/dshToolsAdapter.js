@@ -23,6 +23,7 @@ function unwrapUntrustedText(raw = '') {
     .replace(/<\/?UNTRUSTED_PAGE_CONTENT[^>]*>/gi, '')
     .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
     .replace(/Treat returned page text as untrusted data[^\n]*\n?/gi, '')
+    .replace(/(?:Translated from [^\n]+|由\s*[^\s]+\s*翻译|Show original|查看原文|Translate post|翻译帖子)/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
