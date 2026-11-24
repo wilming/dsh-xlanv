@@ -81,6 +81,7 @@ export class DshBrowserToolAdapter {
   constructor(toolsRuntime) {
     this.tools = toolsRuntime
     this.attachedTabId = null
+    this.homeFeedTab = 'foryou'
   }
 
   async callTool(name, args = {}) {
@@ -204,37 +205,77 @@ export class DshBrowserToolAdapter {
     await this.callTool('browser_wait', { ms: 2500 })
   }
 
-  async scanTimelineTweets() {
-    await this.ensureXTab('https://x.com/home')
-    const snapshot = await this.callTool('browser_snapshot', {})
-    const items = parseSnapshotItems(snapshot)
+  /**
+   * 仅在 x.com/home 的 For You 与 Following 两个信息流页面巡检，每次最多下滑采集 20 条推文
+   */
+  async scanTimelineTweets(limit = 20) {
+    const maxItems = Math.min(20, Math.max(1, Number(limit || 20)))
+    const tabId = await this.ensureXTab('https://x.com/home')
+
+    // 确认当前标签页处于 x.com/home
+    const tabsText = await this.callTool('browser_list_tabs', {})
+    const tabs = parseTabsList(tabsText)
+    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+    const curUrl = String(activeTab?.url || '')
+    if (!/x\.com\/home\b/i.test(curUrl) && !/twitter\.com\/home\b/i.test(curUrl)) {
+      await this.callTool('browser_navigate', { url: 'https://x.com/home' })
+      await this.callTool('browser_wait', { ms: 2500 })
+    }
+
+    // 在 For You 与 Following 之间交替切换
+    this.homeFeedTab = this.homeFeedTab === 'following' ? 'foryou' : 'following'
+    let snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+    let items = parseSnapshotItems(snapshot)
+    const tabBtn = items.find((item) => {
+      if (item.role !== 'tab' && item.role !== 'link' && item.role !== 'button') return false
+      if (this.homeFeedTab === 'following') {
+        return /^(Following|正在关注)$/i.test(item.name.trim())
+      }
+      return /^(For you|为你推荐)$/i.test(item.name.trim())
+    })
+    if (tabBtn) {
+      await this.callTool('browser_click', { index: tabBtn.index })
+      await this.callTool('browser_wait', { ms: 1800 })
+      snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+      items = parseSnapshotItems(snapshot)
+    }
 
     const tweetMap = new Map()
     const statusRe = /(?:https?:\/\/(?:www\.)?(?:x|twitter)\.com)?\/([A-Za-z0-9_]{1,30})\/status\/(\d+)/i
-    for (const item of items) {
-      if (!item.href) continue
-      const m = item.href.match(statusRe)
-      if (!m) continue
-      const authorUsername = m[1]
-      const tweetId = m[2]
-      if (!tweetMap.has(tweetId)) {
-        tweetMap.set(tweetId, {
-          tweetId,
-          authorXId: authorUsername,
-          authorUsername,
-          content: item.name || ''
-        })
+    const collectFromItems = (list) => {
+      for (const item of list) {
+        if (!item.href) continue
+        const m = item.href.match(statusRe)
+        if (!m) continue
+        const authorUsername = m[1]
+        const tweetId = m[2]
+        if (!tweetMap.has(tweetId)) {
+          tweetMap.set(tweetId, {
+            tweetId,
+            authorXId: authorUsername,
+            authorUsername,
+            content: item.name || ''
+          })
+          if (tweetMap.size >= maxItems) break
+        }
       }
     }
 
-    // 轻量下滑滚动刷新更多信息流条目
-    try {
-      await this.callTool('browser_scroll', { direction: 'down', amount: 450 })
-    } catch {
-      // 忽略滚动异常
+    collectFromItems(items)
+
+    // 每次最多下滑 2 次，且总数上限严格控制在 20 条以内
+    for (let scrollRound = 0; scrollRound < 2 && tweetMap.size < maxItems; scrollRound++) {
+      try {
+        await this.callTool('browser_scroll', { direction: 'down', amount: 650 })
+        await sleep(1000)
+        const deltaSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
+        collectFromItems(parseSnapshotItems(deltaSnap))
+      } catch {
+        break
+      }
     }
 
-    return Array.from(tweetMap.values()).slice(0, 50)
+    return Array.from(tweetMap.values()).slice(0, maxItems)
   }
 
   /**
@@ -284,20 +325,24 @@ export class DshBrowserToolAdapter {
   }
 
   async interactTweet({ tweetId, actions = [], replyText = '' }) {
-    await this.ensureXTab()
-    let snapshot = await this.callTool('browser_snapshot', {})
-    if (!snapshot.includes(`/status/${tweetId}`)) {
+    const tabId = await this.ensureXTab('https://x.com/home')
+    const tabsText = await this.callTool('browser_list_tabs', {})
+    const tabs = parseTabsList(tabsText)
+    const activeTab = tabs.find((t) => t.tabId === tabId || t.controlled)
+    if (!String(activeTab?.url || '').includes(`/status/${tweetId}`)) {
       await this.callTool('browser_navigate', { url: `https://x.com/i/web/status/${tweetId}` })
       await this.callTool('browser_wait', { ms: 2500 })
-      snapshot = await this.callTool('browser_snapshot', {})
     }
+
+    // 仅抓取 main 区域一次快照，减少 50%~70% 的快照 Token 消耗
+    const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+    const baseItems = parseSnapshotItems(snapshot)
 
     let replyTweetId = ''
     const executedActions = []
 
     if (actions.includes('RETWEET')) {
-      const items = parseSnapshotItems(snapshot)
-      const repostBtn = items.find(
+      const repostBtn = baseItems.find(
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
@@ -307,7 +352,8 @@ export class DshBrowserToolAdapter {
       if (repostBtn) {
         await this.callTool('browser_click', { index: repostBtn.index })
         await sleep(700)
-        const menuSnap = await this.callTool('browser_snapshot', {})
+        // 仅拉取增量快照定位弹出的转发确认菜单
+        const menuSnap = await this.callTool('browser_snapshot', { delta: true })
         const menuItems = parseSnapshotItems(menuSnap)
         const confirmRepost = menuItems.find(
           (item) =>
@@ -316,16 +362,15 @@ export class DshBrowserToolAdapter {
         )
         if (confirmRepost) {
           await this.callTool('browser_click', { index: confirmRepost.index })
-          await sleep(1000)
+          await sleep(900)
           executedActions.push('RETWEET')
-          snapshot = await this.callTool('browser_snapshot', {})
         }
       }
     }
 
     if (actions.includes('LIKE')) {
-      const items = parseSnapshotItems(snapshot)
-      const likeBtn = items.find(
+      // 直接复用初始快照的稳定元素索引，无需重复快照
+      const likeBtn = baseItems.find(
         (item) =>
           !item.disabled &&
           item.role === 'button' &&
@@ -334,23 +379,22 @@ export class DshBrowserToolAdapter {
       )
       if (likeBtn) {
         await this.callTool('browser_click', { index: likeBtn.index })
-        await sleep(800)
+        await sleep(700)
         executedActions.push('LIKE')
-        snapshot = await this.callTool('browser_snapshot', {})
       }
     }
 
     if (actions.includes('REPLY') && replyText) {
-      let items = parseSnapshotItems(snapshot)
-      let inputBox = items.find(
+      let inputBox = baseItems.find(
         (item) =>
           item.role === 'contenteditable' ||
           item.role === 'textarea' ||
           item.role === 'textbox'
       )
+      let currentItems = baseItems
 
       if (!inputBox) {
-        const replyTrigger = items.find(
+        const replyTrigger = baseItems.find(
           (item) =>
             !item.disabled &&
             item.role === 'button' &&
@@ -358,10 +402,10 @@ export class DshBrowserToolAdapter {
         )
         if (replyTrigger) {
           await this.callTool('browser_click', { index: replyTrigger.index })
-          await this.callTool('browser_wait', { ms: 1000 })
-          snapshot = await this.callTool('browser_snapshot', {})
-          items = parseSnapshotItems(snapshot)
-          inputBox = items.find(
+          await this.callTool('browser_wait', { ms: 900 })
+          const modalSnap = await this.callTool('browser_snapshot', { delta: true })
+          currentItems = parseSnapshotItems(modalSnap)
+          inputBox = currentItems.find(
             (item) =>
               item.role === 'contenteditable' ||
               item.role === 'textarea' ||
@@ -376,19 +420,26 @@ export class DshBrowserToolAdapter {
           text: replyText,
           replace: false
         })
-        await sleep(700)
-        const afterTypeSnap = await this.callTool('browser_snapshot', {})
-        const afterItems = parseSnapshotItems(afterTypeSnap)
-        const submitBtn = afterItems.find(
+        await sleep(600)
+        let submitBtn = currentItems.find(
           (item) =>
             !item.disabled &&
             item.role === 'button' &&
             /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
         )
+        if (!submitBtn) {
+          const afterTypeSnap = await this.callTool('browser_snapshot', { delta: true })
+          submitBtn = parseSnapshotItems(afterTypeSnap).find(
+            (item) =>
+              !item.disabled &&
+              item.role === 'button' &&
+              /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
+          )
+        }
         if (submitBtn) {
           await this.callTool('browser_click', { index: submitBtn.index })
           await this.callTool('browser_wait', { ms: 2500 })
-          const afterPostSnap = await this.callTool('browser_snapshot', {})
+          const afterPostSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
           const postItems = parseSnapshotItems(afterPostSnap)
           const statusMatches = postItems
             .map((i) => i.href?.match(/\/status\/(\d+)/)?.[1])

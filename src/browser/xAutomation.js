@@ -19,6 +19,74 @@ export class XAutomationRunner {
     this.dataDir = getDataDir()
     this.followedCachePath = path.join(this.dataDir, 'followed_cache.json')
     this.followedMap = new Map()
+    this.interactedCachePath = path.join(this.dataDir, 'interacted_cache.json')
+    this.interactedMap = new Map()
+    this.myProfile = null
+    this.lastProfileSyncAt = 0
+  }
+
+  loadLocalInteracted() {
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true })
+    }
+    if (this.interactedMap.size === 0 && fs.existsSync(this.interactedCachePath)) {
+      try {
+        const obj = JSON.parse(fs.readFileSync(this.interactedCachePath, 'utf-8'))
+        for (const [tid, acts] of Object.entries(obj || {})) {
+          if (Array.isArray(acts)) {
+            this.interactedMap.set(tid, new Set(acts))
+          }
+        }
+      } catch {
+        // 忽略损坏缓存
+      }
+    }
+  }
+
+  recordInteracted(tweetId, actions = []) {
+    if (!tweetId || !actions.length) return
+    this.loadLocalInteracted()
+    const key = String(tweetId)
+    const set = this.interactedMap.get(key) || new Set()
+    for (const a of actions) set.add(a)
+    this.interactedMap.set(key, set)
+
+    const out = {}
+    // 最多保留最近 3000 条本地去重记录
+    const entries = Array.from(this.interactedMap.entries()).slice(-3000)
+    for (const [k, s] of entries) {
+      out[k] = Array.from(s)
+    }
+    fs.writeFileSync(this.interactedCachePath, JSON.stringify(out), 'utf-8')
+  }
+
+  async ensureMyProfile() {
+    const now = Date.now()
+    if (this.myProfile && now - this.lastProfileSyncAt < 1800000) {
+      return this.myProfile
+    }
+    try {
+      const prof = await this.client.getProfile()
+      if (prof) {
+        this.myProfile = {
+          xUserId: String(prof.x_user_id || '').trim(),
+          xUsername: String(prof.x_username || '').replace(/^@/, '').trim().toLowerCase()
+        }
+        this.lastProfileSyncAt = now
+      }
+    } catch {
+      // 忽略临时拉取失败
+    }
+    return this.myProfile
+  }
+
+  isOwnPost(post) {
+    if (!this.myProfile) return false
+    const axId = String(post?.author_x_id || post?.authorXId || '').trim()
+    const axName = String(post?.author_username || post?.authorUsername || axId).replace(/^@/, '').trim().toLowerCase()
+    if (this.myProfile.xUserId && axId && axId === this.myProfile.xUserId) return true
+    if (this.myProfile.xUsername && axName && axName === this.myProfile.xUsername) return true
+    return false
   }
 
   loadLocalFollowed() {
@@ -105,8 +173,13 @@ export class XAutomationRunner {
     }
   }
 
-  buildPlannedActions(completedActions = [], allowedActions = null) {
+  buildPlannedActions(tweetId, completedActions = [], allowedActions = null) {
+    this.loadLocalInteracted()
     const done = new Set(completedActions)
+    const localDone = this.interactedMap.get(String(tweetId))
+    if (localDone) {
+      for (const a of localDone) done.add(a)
+    }
     const allowed = Array.isArray(allowedActions) && allowedActions.length > 0
       ? new Set(allowedActions.map((a) => String(a).toUpperCase()))
       : null
@@ -118,12 +191,17 @@ export class XAutomationRunner {
   }
 
   async handleCandidatePost(post) {
+    // 铁律：绝不对自己的主帖执行任何转推、评论或点赞
+    if (this.isOwnPost(post)) {
+      return
+    }
+
+    const plannedActions = this.buildPlannedActions(post.tweet_id, post.completed_actions, post.allowed_actions)
+    if (plannedActions.length === 0) return
+
     // 1. 拟人化视口停留 5~12 秒
     const dwellMs = randomInt(this.config.timing.dwellMinMs, this.config.timing.dwellMaxMs)
     await sleep(dwellMs)
-
-    const plannedActions = this.buildPlannedActions(post.completed_actions, post.allowed_actions)
-    if (plannedActions.length === 0) return
 
     let replyText = ''
     if (plannedActions.includes('REPLY')) {
@@ -173,6 +251,9 @@ export class XAutomationRunner {
       return
     }
 
+    // 立即记录到本地去重缓存，确保每条推文转发/评论/点赞各最多执行一次
+    this.recordInteracted(post.tweet_id, finalActions)
+
     // 4. 上报互动结果并完成零和积分结算
     const reportRes = await this.client.reportInteraction({
       targetXUserId: post.author_x_id,
@@ -220,39 +301,21 @@ export class XAutomationRunner {
     if (!this.isWithinActiveHours()) {
       return
     }
+    await this.ensureMyProfile()
     await this.ensureFollowedSynced()
     await this.runRecommendFollowCycle()
 
-    // 10% 概率高积分未达标强推（通过关注列表定位作者头像进入主页，杜绝 URL 直跳）
-    if (Math.random() < this.config.timing.highPriorityProbability) {
-      const hp = await this.client.getHighPriorityUnmet()
-      if (hp?.post) {
-        console.log(`[dsh-xlanv] 触发 10% 高积分强推: @${hp.post.author_x_username} (${hp.post.tweet_id})`)
-        if (this.browser && typeof this.browser.openPostFromFollowing === 'function') {
-          await this.browser.openPostFromFollowing(hp.post.author_x_username, hp.post.tweet_id)
-        }
-        await this.handleCandidatePost({
-          tweet_id: hp.post.tweet_id,
-          author_x_id: hp.post.author_x_user_id,
-          author_username: hp.post.author_x_username,
-          content: hp.post.content,
-          allowed_actions: hp.post.allowed_actions || null,
-          completed_actions: []
-        })
-        return
-      }
-    }
-
-    // 信息流巡检 + 批量轻量级校验
+    // 仅在 Home 页面的 For You 和 Following 两个信息流巡检，每次最多下滑采集 20 条
     if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
-      const timelineTweets = await this.browser.scanTimelineTweets()
-      if (timelineTweets.length > 0) {
-        const checkItems = timelineTweets.slice(0, 50).map((t) => ({
+      const timelineTweets = await this.browser.scanTimelineTweets(20)
+      const candidates = timelineTweets.filter((t) => !this.isOwnPost(t)).slice(0, 20)
+      if (candidates.length > 0) {
+        const checkItems = candidates.map((t) => ({
           author_x_id: t.authorXId,
           tweet_id: t.tweetId
         }))
         const checkRes = await this.client.batchCheckPosts(checkItems)
-        const tweetMap = new Map(timelineTweets.map((t) => [t.tweetId, t]))
+        const tweetMap = new Map(candidates.map((t) => [t.tweetId, t]))
 
         for (const item of checkRes.items || []) {
           if (!this.running) break

@@ -116,17 +116,18 @@ export async function generateHumanReply(postContent, llm = null, options = {}) 
 
   if (llm && typeof llm.chat === 'function') {
     const customPrompt = String(options.customPrompt || '').trim().slice(0, 1000)
+    const compactContent = String(postContent || '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220)
     const promptLines = [
-      '你是一个真实的 X (Twitter) 普通蓝V用户，刚刷到下面这条推文，准备随手回一条简短评论。',
-      '要求：',
-      '1. 必须结合原帖的具体内容表达你的主观感受和个人判断，不要泛泛而谈。',
-      '2. 绝对禁止使用破折号（—— 或 —），绝对禁止使用“首先/其次/总而言之/值得注意的是/感谢分享”等 AI 套话。',
-      '3. 口语化、自然、像真人在手机上随手打的字，12~40字左右，末尾不要加句号或感叹号。'
+      '你是真实X蓝V用户，结合原帖写12~35字口语短评（表达主观感受，禁破折号与AI套话，末尾无标点）：'
     ]
     if (customPrompt) {
-      promptLines.push(`4. 用户额外设定的上下文人设与要求：\n${customPrompt}`)
+      promptLines.push(`人设要求：${customPrompt}`)
     }
-    promptLines.push(`原帖内容：${postContent}`)
+    promptLines.push(`原帖：${compactContent}`)
     const prompt = promptLines.join('\n')
 
     try {
