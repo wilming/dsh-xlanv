@@ -167,27 +167,62 @@ export class DshBrowserToolAdapter {
   }
 
   async followUser(xUsername) {
-    if (!xUsername) return false
-    await this.ensureXTab()
-    await this.callTool('browser_navigate', { url: `https://x.com/${xUsername}` })
-    await this.callTool('browser_wait', { ms: 2500 })
+    const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
+    if (!cleanUser) return false
 
-    const snapshot = await this.callTool('browser_snapshot', {})
+    await this.ensureXTab(`https://x.com/${cleanUser}`)
+    await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
+    await this.callTool('browser_wait', { ms: 2800 })
+
+    // 仅在 main 区域查找，避免误点右侧边栏“推荐关注”的 Follow 按钮
+    const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
     const items = parseSnapshotItems(snapshot)
-    const followBtn = items.find(
-      (item) =>
-        !item.disabled &&
-        (item.role === 'button' || item.role === 'link') &&
-        /^(Follow|关注)\b/i.test(item.name) &&
-        !/^(Following|正在关注)/i.test(item.name)
-    )
+
+    const userRe = new RegExp(`@${cleanUser}\\b`, 'i')
+    const isFollowingBtn = (item) =>
+      (item.role === 'button' || item.role === 'link') &&
+      /^(Following|正在关注)/i.test(item.name.trim())
+
+    // 如果本来就已经处于正在关注状态，不重复点击，直接返回 false 避免未实际关注就刷分
+    const alreadyFollowing = items.find((item) => isFollowingBtn(item) && userRe.test(item.name))
+    if (alreadyFollowing) {
+      return false
+    }
+
+    const followBtn =
+      items.find(
+        (item) =>
+          !item.disabled &&
+          (item.role === 'button' || item.role === 'link') &&
+          /^(Follow|关注)\b/i.test(item.name.trim()) &&
+          userRe.test(item.name) &&
+          !/^(Following|正在关注)/i.test(item.name.trim())
+      ) ||
+      items.find(
+        (item) =>
+          !item.disabled &&
+          (item.role === 'button' || item.role === 'link') &&
+          /^(Follow|关注)$/i.test(item.name.trim())
+      )
+
     if (!followBtn) {
       return false
     }
 
     await this.callTool('browser_click', { index: followBtn.index })
-    await this.callTool('browser_wait', { ms: 1200 })
-    return true
+    await this.callTool('browser_wait', { ms: 1600 })
+
+    // 点击后二次校验：必须确认页面按钮真正变成了 Following / 正在关注，才算关注成功
+    const verifySnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
+    let verifyItems = parseSnapshotItems(verifySnap)
+    let confirmed = verifyItems.some((item) => isFollowingBtn(item))
+    if (!confirmed) {
+      const fullVerifySnap = await this.callTool('browser_snapshot', { region: 'main' })
+      verifyItems = parseSnapshotItems(fullVerifySnap)
+      confirmed = verifyItems.some((item) => isFollowingBtn(item) && (userRe.test(item.name) || /^(Following|正在关注)$/i.test(item.name.trim())))
+    }
+
+    return confirmed
   }
 
   async openPostFromFollowing(authorUsername, tweetId) {

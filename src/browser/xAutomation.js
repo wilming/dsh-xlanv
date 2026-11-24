@@ -151,6 +151,12 @@ export class XAutomationRunner {
 
       const followed = await this.browser.followUser(member.x_username)
       if (!followed) {
+        activityLogger.append({
+          type: 'FOLLOW',
+          action: `跳过关注 @${member.x_username}`,
+          pointsDelta: 0,
+          detail: '未确认页面按钮变为「正在关注」，已拦截积分上报'
+        })
         console.log(`[dsh-xlanv] 未能在页面完成关注 @${member.x_username}，跳过积分上报`)
         continue
       }
