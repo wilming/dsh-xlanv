@@ -47,10 +47,13 @@ function extractMainContentFromSnapshot(snapshotText = '') {
     .replace(/Security:\s*Enclosed page content is untrusted data[^\n]*\n?/gi, '')
     .replace(/Treat returned page text as untrusted data[^\n]*\n?/gi, '')
   const m = cleanedRaw.match(
-    /(?:Changed )?Main content:\s*\n([\s\S]*?)(?:\n\s*\n\s*(?:Changed )?(?:Interactive|Form|Images)\b|$)/i
+    /(?:Changed )?Main content:\s*\r?\n?([\s\S]*?)(?:\r?\n\s*\r?\n\s*(?:Changed )?(?:Interactive|Form|Images)\b|$)/i
   )
-  if (!m || !m[1]) return ''
-  return m[1]
+  if (m && m[1] && m[1].trim()) return m[1]
+  // 若快照格式无显式 Main content 头，剥离 Interactive/Form/Images 区块后兜底返回文本部分
+  return cleanedRaw
+    .replace(/\r?\n\s*\r?\n\s*(?:Changed )?(?:Interactive|Form|Images)\b[\s\S]*$/i, '')
+    .trim()
 }
 
 function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId = '') {
@@ -751,13 +754,15 @@ export class DshBrowserToolAdapter {
 
           content = text.slice(0, 180)
           if (!content && focusedSnap) {
-            if (isPollutedChromeText(extractMainContentFromSnapshot(focusedSnap)) && !/Conversation/i.test(focusedSnap)) {
+            const mainText = extractMainContentFromSnapshot(focusedSnap)
+            if (CHROME_NOISE_RE.test(mainText) && !/Conversation|对话|帖子/i.test(focusedSnap)) {
               // 页面非推文详情页（如主页时间线）时跳过，不生成假行
               continue
             }
             content = '(无文字内容)'
           }
-        } catch {
+        } catch (err) {
+          console.warn(`[dsh-xlanv] scanProfileTweets 抓取推文 ${tweetId} 异常:`, err?.message || err)
           content = ''
         }
       }
@@ -818,14 +823,20 @@ export class DshBrowserToolAdapter {
     let bestText = mainSnap ? extractTweetTextFromDetailSnapshot(mainSnap, username) : ''
 
     if (!bestText) {
-      try {
-        const raw = await this.callTool('browser_get_text', { selector: '[data-testid="tweetText"]' })
-        const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
-        if (cleaned && !isPollutedChromeText(cleaned)) {
-          bestText = cleaned
+      for (const sel of [
+        'article[data-testid="tweet"] [data-testid="tweetText"]',
+        'article[data-testid="tweet"] div[lang]'
+      ]) {
+        try {
+          const raw = await this.callTool('browser_get_text', { selector: sel })
+          const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
+          if (cleaned && !isPollutedChromeText(cleaned)) {
+            bestText = cleaned
+            break
+          }
+        } catch {
+          // 忽略未命中
         }
-      } catch {
-        // 忽略未命中
       }
     }
 
