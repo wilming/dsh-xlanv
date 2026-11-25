@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 820" width="1440" height="820" font-family="PingFang SC, Microsoft YaHei, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#0284c7"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#059669"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowSlate" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1440" height="820" fill="url(#bgGrad)" rx="16"/>
+
+  <!-- Top Banner -->
+  <rect x="36" y="28" width="1368" height="74" rx="14" fill="url(#headerGrad)" filter="url(#shadow)"/>
+  <text x="68" y="64" fill="#ffffff" font-size="24" font-weight="700">XLANV (dsh-xlanv) 系统架构图</text>
+  <text x="68" y="88" fill="#94a3b8" font-size="14">Windows Chrome 真实登录态浏览器  ↔  DeepSeek Harness (DSH) 本地自动化引擎  ↔  X / XLANV 云端平台</text>
+
+  <!-- Layer 1: Browser (Left) -->
+  <rect x="36" y="128" width="380" height="440" rx="16" fill="#ffffff" stroke="#bae6fd" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="36" y="128" width="380" height="48" rx="16" fill="#e0f2fe"/>
+  <rect x="36" y="160" width="380" height="16" fill="#e0f2fe"/>
+  <text x="60" y="159" fill="#0369a1" font-size="18" font-weight="700">1. Windows 浏览器层 (Chrome)</text>
+
+  <rect x="64" y="204" width="324" height="118" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="84" y="236" fill="#0f172a" font-size="18" font-weight="700">Google Chrome 浏览器</text>
+  <text x="84" y="264" fill="#475569" font-size="15">• 保留真实登录 Cookie 与指纹环境</text>
+  <text x="84" y="289" fill="#475569" font-size="15">• 打开并停留 https://x.com</text>
+
+  <rect x="64" y="388" width="324" height="148" rx="12" fill="#f0f9ff" stroke="#7dd3fc" stroke-width="1.5"/>
+  <text x="84" y="422" fill="#0369a1" font-size="18" font-weight="700">dsh-browser-x-extension</text>
+  <text x="84" y="450" fill="#334155" font-size="15">• Chrome 应用商店官方扩展</text>
+  <text x="84" y="475" fill="#334155" font-size="15">• 侧边栏支持 Take it back 接管窗口</text>
+  <text x="84" y="500" fill="#334155" font-size="15">• 执行点击 / 输入 / 滚屏 / DOM 快照</text>
+
+  <!-- Arrow Chrome <-> Extension -->
+  <line x1="226" y1="324" x2="226" y2="384" stroke="#0284c7" stroke-width="2.5" marker-start="url(#arrowBlue)" marker-end="url(#arrowBlue)"/>
+  <rect x="136" y="340" width="180" height="24" rx="6" fill="#ffffff" stroke="#bae6fd"/>
+  <text x="226" y="357" text-anchor="middle" fill="#0369a1" font-size="13" font-weight="600">DOM 读取 / 交互操作</text>
+
+  <!-- Layer 2: DSH Desktop Client (Center) -->
+  <rect x="466" y="128" width="510" height="656" rx="16" fill="#ffffff" stroke="#c7d2fe" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="466" y="128" width="510" height="48" rx="16" fill="#eef2ff"/>
+  <rect x="466" y="160" width="510" height="16" fill="#eef2ff"/>
+  <text x="490" y="159" fill="#3730a3" font-size="18" font-weight="700">2. DeepSeek Harness (DSH) 客户端</text>
+
+  <!-- dsh-browser-x bridge -->
+  <rect x="494" y="200" width="454" height="110" rx="12" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="516" y="232" fill="#5b21b6" font-size="18" font-weight="700">dsh-browser-x 桌面端桥接插件</text>
+  <text x="516" y="260" fill="#475569" font-size="15">• 维护与 Chrome 扩展的本地 WebSocket 通道</text>
+  <text x="516" y="285" fill="#475569" font-size="15">• 向 DSH 暴露 browser_* 标准化工具集</text>
+
+  <!-- dsh-xlanv engine -->
+  <rect x="494" y="358" width="454" height="196" rx="12" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="2"/>
+  <text x="516" y="392" fill="#065f46" font-size="19" font-weight="700">dsh-xlanv 核心自动化引擎</text>
+  <text x="516" y="422" fill="#1e293b" font-size="15">• 24h 巡检调度：For You / Following / 推荐互关</text>
+  <text x="516" y="448" fill="#1e293b" font-size="15">• 可重入浏览器互斥锁：防手动刷新与巡检抢占 Tab</text>
+  <text x="516" y="474" fill="#1e293b" font-size="15">• 拟人风控：评论 ≥30s 慢发、过滤串推后续与他人回复</text>
+  <text x="516" y="500" fill="#1e293b" font-size="15">• 控制台 (/xlanv)：基础设置 / 推广管理 / 实时日志</text>
+  <text x="516" y="526" fill="#1e293b" font-size="15">• 半自动模式：直接在 DSH 右下角弹出倒计时确认框</text>
+
+  <!-- DeepSeek LLM -->
+  <rect x="494" y="598" width="218" height="156" rx="12" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="514" y="630" fill="#92400e" font-size="17" font-weight="700">DeepSeek LLM</text>
+  <text x="514" y="658" fill="#475569" font-size="14">• 结合原帖正文生成短评</text>
+  <text x="514" y="682" fill="#475569" font-size="14">• 支持自定义 Prompt 人设</text>
+  <text x="514" y="706" fill="#475569" font-size="14">• 去 AI 味后处理清洗</text>
+  <text x="514" y="730" fill="#475569" font-size="14">  (无破折号/无套话/加空格)</text>
+
+  <!-- Local Storage -->
+  <rect x="730" y="598" width="218" height="156" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="748" y="630" fill="#0f172a" font-size="17" font-weight="700">本地存储 (~/.dsh/xlanv)</text>
+  <text x="748" y="658" fill="#475569" font-size="14">• config.json (密钥与策略)</text>
+  <text x="748" y="682" fill="#475569" font-size="14">• promoted_posts.json</text>
+  <text x="748" y="706" fill="#475569" font-size="14">• interacted / followed 缓存</text>
+  <text x="748" y="730" fill="#475569" font-size="14">• logs.json (实时运行日志)</text>
+
+  <!-- Arrows inside DSH -->
+  <line x1="721" y1="312" x2="721" y2="354" stroke="#7c3aed" stroke-width="2.5" marker-start="url(#arrowPurple)" marker-end="url(#arrowPurple)"/>
+  <line x1="603" y1="556" x2="603" y2="594" stroke="#059669" stroke-width="2.2" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+  <line x1="839" y1="556" x2="839" y2="594" stroke="#475569" stroke-width="2.2" marker-start="url(#arrowSlate)" marker-end="url(#arrowSlate)"/>
+
+  <!-- Layer 3: External Platforms (Right) -->
+  <rect x="1024" y="128" width="380" height="656" rx="16" fill="#ffffff" stroke="#fed7aa" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="1024" y="128" width="380" height="48" rx="16" fill="#fff7ed"/>
+  <rect x="1024" y="160" width="380" height="16" fill="#fff7ed"/>
+  <text x="1048" y="159" fill="#9a3412" font-size="18" font-weight="700">3. 外部平台与云端服务</text>
+
+  <!-- X.com -->
+  <rect x="1052" y="204" width="324" height="186" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="1074" y="238" fill="#0f172a" font-size="19" font-weight="700">X (https://x.com)</text>
+  <text x="1074" y="268" fill="#475569" font-size="15">• 个人主页前 10 条主帖抓取</text>
+  <text x="1074" y="294" fill="#475569" font-size="15">• For You / Following 首页巡检</text>
+  <text x="1074" y="320" fill="#475569" font-size="15">• 真实执行关注 / 转发 / 点赞 / 评论</text>
+  <text x="1074" y="346" fill="#475569" font-size="15">• 自动点击 Show original 还原原文</text>
+
+  <!-- XLANV Backend -->
+  <rect x="1052" y="446" width="324" height="308" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.8"/>
+  <text x="1074" y="482" fill="#1d4ed8" font-size="19" font-weight="700">XLANV 互助平台后端</text>
+  <text x="1074" y="508" fill="#3b82f6" font-size="14" font-weight="600">https://xlanv.net/api/v1</text>
+  <text x="1074" y="542" fill="#1e293b" font-size="15">• GET /plugin/profile (积分与绑定校验)</text>
+  <text x="1074" y="570" fill="#1e293b" font-size="15">• GET /plugin/posts/check (推广池比对)</text>
+  <text x="1074" y="598" fill="#1e293b" font-size="15">• POST /plugin/posts/promote (提交推广)</text>
+  <text x="1074" y="626" fill="#1e293b" font-size="15">• POST /plugin/interactions/report</text>
+  <text x="1088" y="650" fill="#475569" font-size="14">零和积分结算 (转发+3 / 评论+2 / 点赞+1)</text>
+  <text x="1074" y="680" fill="#1e293b" font-size="15">• GET /plugin/follows/recommend</text>
+  <text x="1074" y="708" fill="#1e293b" font-size="15">• POST /plugin/follows/report (+1/-1 分)</text>
+
+  <!-- Cross-layer Arrows -->
+  <!-- Extension <-> dsh-browser-x -->
+  <path d="M 388 460 C 428 460, 428 255, 490 255" fill="none" stroke="#7c3aed" stroke-width="2.5" marker-start="url(#arrowPurple)" marker-end="url(#arrowPurple)"/>
+  <rect x="386" y="328" width="110" height="40" rx="8" fill="#ffffff" stroke="#ddd6fe"/>
+  <text x="441" y="346" text-anchor="middle" fill="#5b21b6" font-size="12" font-weight="700">本地桥接</text>
+  <text x="441" y="362" text-anchor="middle" fill="#5b21b6" font-size="11">WebSocket</text>
+
+  <!-- dsh-xlanv <-> XLANV Backend -->
+  <path d="M 948 480 C 990 480, 1000 570, 1048 570" fill="none" stroke="#0284c7" stroke-width="2.8" marker-start="url(#arrowBlue)" marker-end="url(#arrowBlue)"/>
+  <rect x="938" y="502" width="122" height="40" rx="8" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="999" y="520" text-anchor="middle" fill="#1d4ed8" font-size="12" font-weight="700">HTTPS API</text>
+  <text x="999" y="536" text-anchor="middle" fill="#1d4ed8" font-size="11">X-Api-Secret</text>
+
+  <!-- Chrome <-> X.com (Top arc) -->
+  <path d="M 226 204 L 226 112 L 1214 112 L 1214 200" fill="none" stroke="#059669" stroke-width="2.5" stroke-dasharray="7 5" marker-start="url(#arrowGreen)" marker-end="url(#arrowGreen)"/>
+  <rect x="615" y="98" width="210" height="26" rx="8" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="720" y="116" text-anchor="middle" fill="#065f46" font-size="13" font-weight="700">Chrome 真实登录态直接访问 x.com</text>
+
+  <!-- Bottom Note Box -->
+  <rect x="36" y="592" width="380" height="192" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="60" y="628" fill="#0f172a" font-size="17" font-weight="700">核心防风控设计亮点</text>
+  <text x="60" y="660" fill="#334155" font-size="14">1. 真实浏览器执行，不裸跑无头爬虫</text>
+  <text x="60" y="688" fill="#334155" font-size="14">2. 未执行成功绝不虚报积分（先做后报）</text>
+  <text x="60" y="716" fill="#334155" font-size="14">3. 打开评论框到发送 ≥30 秒防 fast reply spam</text>
+  <text x="60" y="744" fill="#334155" font-size="14">4. 本地 + 线上双端去重，绝不重复互动</text>
+  <text x="60" y="772" fill="#334155" font-size="14">5. 支持关闭总开关即时中断当轮巡检</text>
+</svg>

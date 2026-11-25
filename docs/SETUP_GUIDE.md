@@ -2,46 +2,37 @@
 
 ## 系统架构图
 
+![XLANV 系统架构图](./images/architecture.svg)
+
+<details>
+<summary><strong>点击展开：安装与使用总流程图（11 步）</strong></summary>
+
 ```mermaid
 flowchart LR
-  subgraph WIN["Windows 本机环境"]
-    CHROME["Chrome 浏览器 (登录 x.com)"]
-    EXT["Chrome 扩展: dsh-browser-x-extension"]
-    subgraph DSH["DeepSeek Harness (DSH) 桌面客户端"]
-      BRIDGE["dsh-browser-x 桌面端桥接插件"]
-      XLANV["dsh-xlanv 互助引擎 & 控制台 (/xlanv)"]
-      LLM["DeepSeek LLM 拟人短评生成"]
-      STORE["本地配置与缓存 (~/.dsh/xlanv/)"]
-    end
+  subgraph G1["阶段一：浏览器与客户端准备"]
+    direction TB
+    S1["1. 准备 Windows 电脑"] --> S2["2. 安装 Chrome 并登录 X"]
+    S2 --> S3["3. 安装 Chrome 扩展 dsh-browser-x-extension"]
+    S3 --> S4["4. 下载并安装 DSH 客户端"]
   end
 
-  XCOM["X (https://x.com)"]
-  BACKEND["XLANV 平台后端 (https://xlanv.net/api/v1)"]
+  subgraph G2["阶段二：安装插件与重启"]
+    direction TB
+    S5["5. 登录 DeepSeek，先装 dsh-browser-x"] --> S6["6. 再装 dsh-xlanv 插件"]
+    S6 --> S7["7. 右下角托盘退出 DSH 后重启"]
+  end
 
-  CHROME <-->|"DOM 读取 / 点击 / 滚屏"| EXT
-  EXT <-->|"本地 WebSocket 桥接"| BRIDGE
-  BRIDGE <-->|"browser_* 工具与互斥锁调度"| XLANV
-  XLANV <-->|"去 AI 味短评生成"| LLM
-  XLANV <-->|"config / promoted_posts / logs"| STORE
-  CHROME <-->|"真实登录态访问"| XCOM
-  XLANV <-->|"X-Api-Secret 鉴权: 推广校验 / 积分结算"| BACKEND
+  subgraph G3["阶段三：注册取密与启动巡检"]
+    direction TB
+    S8["8. 去 xlanv.net 注册并绑定 X"] --> S9["9. 后台复制 32 位 api_secret"]
+    S9 --> S10["10. DSH 左下角打开 XLANV 控制台"]
+    S10 --> S11["11. 配置密钥/动作/推广并开启巡检"]
+  end
+
+  G1 --> G2 --> G3
 ```
 
-## 安装与使用总流程图（11 步）
-
-```mermaid
-flowchart TD
-  S1["1. 准备 Windows 电脑"] --> S2["2. 安装 Chrome 浏览器并登录 X"]
-  S2 --> S3["3. 安装 Chrome 扩展 dsh-browser-x-extension"]
-  S3 --> S4["4. 下载并安装 DeepSeek Harness (DSH) 客户端"]
-  S4 --> S5["5. 登录 DeepSeek，先安装 dsh-browser-x 插件"]
-  S5 --> S6["6. 再安装 dsh-xlanv 插件 (GitHub)"]
-  S6 --> S7["7. 系统右下角托盘完全退出 DSH 后重启"]
-  S7 --> S8["8. 前往 https://xlanv.net 注册并绑定 X 账号"]
-  S8 --> S9["9. 在 xlanv.net 后台复制 32 位 api_secret 密钥"]
-  S9 --> S10["10. 重启后的 DSH 左下角打开 XLANV 控制台"]
-  S10 --> S11["11. 配置密钥、互助动作、帖子推广并开启定时巡检"]
-```
+</details>
 
 ---
 
