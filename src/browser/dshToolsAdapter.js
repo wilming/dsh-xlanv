@@ -103,15 +103,31 @@ function stripDetailNoise(text = '', username = '') {
   out = out
     .replace(/^(?:·\s*)?(?:\d+\s*(?:[smhd]|seconds?|minutes?|hours?|days?|秒|分钟?|小时|天)前?|just\s+now)\s+/i, '')
     .replace(/(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日[\s\S]*$/i, '')
-    .replace(/\d{1,2}:\d{2}\s*(?:AM|PM)\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
+    .replace(/\d{1,2}:\d{2}(?:\s*(?:AM|PM))?\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}[\s\S]*$/i, '')
     .replace(/\s*·\s*[\d.,KM万]+\s*(?:Views?|查看|次查看|浏览)[\s\S]*$/i, '')
     .trim()
   return out
 }
 
+function extractTitleQuotedTweetText(snapshotText = '') {
+  const titleLine = (String(snapshotText || '').match(/^Title:\s*(.+)$/im) || [])[1] || ''
+  if (!titleLine) return ''
+  const enMatch = titleLine.match(/^[^\n"]*?\s+on X:\s*"([\s\S]+?)"\s*(?:\/\s*X)?$/i)
+  if (enMatch && enMatch[1]) {
+    const q = unwrapUntrustedText(enMatch[1])
+    if (q && !isPollutedChromeText(q)) return q
+  }
+  const zhMatch = titleLine.match(/^X\s*上的\s*[^\n"“]+?[：:]\s*[“"]([\s\S]+?)[”"]\s*(?:\/\s*X)?$/i)
+  if (zhMatch && zhMatch[1]) {
+    const q = unwrapUntrustedText(zhMatch[1])
+    if (q && !isPollutedChromeText(q)) return q
+  }
+  return ''
+}
+
 function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   const block = extractMainContentFromSnapshot(snapshotText)
-  if (!block) return ''
+  if (!block) return extractTitleQuotedTweetText(snapshotText)
 
   // 1. 优先匹配 X 详情页无障碍标题格式: Post<Name> on X: "<正文>"
   const titleQuoteMatch = block.match(/Post[^\n"]*?\s+on X:\s*"([^"]{1,350})"/i)
@@ -131,11 +147,11 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   let started = false
   for (const line of lines) {
     if (
-      /^(?:To view keyboard shortcuts|View keyboard shortcuts|Skip to home timeline|Skip to trending|Post|Conversation|Home|Explore|Notifications|Messages|Grok|Bookmarks|Profile|More|Subscribe|For you|Following|Follow|Set up profile|\d+\s+posts?)$/i.test(
+      /^(?:To view keyboard shortcuts|View keyboard shortcuts|Skip to home timeline|Skip to trending|Post|Conversation|对话|帖子|Home|Explore|Notifications|Messages|Grok|Bookmarks|Profile|More|Subscribe|For you|Following|Follow|Set up profile|\d+\s+posts?)$/i.test(
         line
       )
     ) {
-      if (/^Conversation$/i.test(line)) started = true
+      if (/^(?:Conversation|对话)$/i.test(line)) started = true
       continue
     }
     if (cleanUser && new RegExp(`^@?${cleanUser}$`, 'i').test(line)) {
@@ -148,7 +164,7 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
     }
     // 到达底部时间线/数据统计区即停止收集
     if (
-      /^(?:\d{1,2}:\d{2}\s*(?:AM|PM)|·|\d+\s*Views?|Views?|Replies?|Reposts?|Likes?|Bookmarks?|Quote|查看次数|回复|转发|转帖|点赞)$/i.test(
+      /^(?:\d{1,2}:\d{2}\s*(?:AM|PM)|(?:上午|下午)?\d{1,2}:\d{2}\s*·\s*\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}:\d{2}(?:\s*(?:AM|PM))?\s*·\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}|·|\d+\s*Views?|Views?|Replies?|Reposts?|Likes?|Bookmarks?|Quote|查看次数|回复|转发|转帖|点赞)$/i.test(
         line
       )
     ) {
@@ -160,8 +176,8 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   }
 
   const joined = stripDetailNoise(unwrapUntrustedText(filtered.join(' ')), cleanUser)
-  if (!joined || isPollutedChromeText(joined)) return ''
-  return joined
+  if (joined && !isPollutedChromeText(joined)) return joined
+  return extractTitleQuotedTweetText(snapshotText)
 }
 
 /**
@@ -403,8 +419,9 @@ export class DshBrowserToolAdapter {
   }
 
   async followUser(xUsername) {
-    const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
-    if (!cleanUser) return false
+    return await this.withBrowserLock(async () => {
+      const cleanUser = String(xUsername || '').replace(/^@/, '').trim()
+      if (!cleanUser) return false
 
     await this.ensureXTab(`https://x.com/${cleanUser}`)
     await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}` })
@@ -458,7 +475,8 @@ export class DshBrowserToolAdapter {
       confirmed = verifyItems.some((item) => isFollowingBtn(item) && (userRe.test(item.name) || /^(Following|正在关注)$/i.test(item.name.trim())))
     }
 
-    return confirmed
+      return confirmed
+    })
   }
 
   async openPostFromFollowing(authorUsername, tweetId) {
@@ -714,6 +732,12 @@ export class DshBrowserToolAdapter {
     let emptyRounds = 0
     for (let round = 0; round < 6 && tweetIds.length < limit; round++) {
       const snapshot = await this.callTool('browser_snapshot', { region: 'main' })
+      if (round === 0) {
+        const snapUrl = (snapshot.match(/^URL:\s*(\S+)/im) || [])[1] || ''
+        if (/\/i\/flow\/login|\/login\b/i.test(snapUrl)) {
+          throw new Error('X 账号未登录，请先在浏览器中登录 x.com 后再刷新')
+        }
+      }
       const items = parseSnapshotItems(snapshot)
       let addedThisRound = 0
 
@@ -746,21 +770,27 @@ export class DshBrowserToolAdapter {
     const results = []
     for (const tweetId of tweetIds.slice(0, limit)) {
       let content = existingContentMap.get(tweetId) || ''
-      let metrics = { x_replies: 0, x_retweets: 0, x_likes: 0 }
+      let metrics = {}
       if (!content) {
+        metrics = { x_replies: 0, x_retweets: 0, x_likes: 0 }
         try {
           await humanPause(1200, 2200)
           await this.callTool('browser_navigate', { url: `https://x.com/${cleanUser}/status/${tweetId}` })
           await this.callTool('browser_wait', { ms: 2800 })
 
-          // 确认当前标签页确实停留在该推文详情页，避免被重定向到 /home 抓出导航栏噪音或幽灵行
-          const navTabs = parseTabsList(await this.callTool('browser_list_tabs', {}))
-          const activeNavTab = navTabs.find((t) => t.controlled) || navTabs[0]
-          if (activeNavTab?.url && !String(activeNavTab.url).includes(`/status/${tweetId}`)) {
+          const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
+          // 优先从快照头部 URL: 校验当前页确实停留在目标推文详情页，避免跳转到 /home 或登录页
+          const snapUrl = (String(focusedSnap || '').match(/^URL:\s*(\S+)/im) || [])[1] || ''
+          if (snapUrl && !snapUrl.includes(`/status/${tweetId}`)) {
             continue
           }
-
-          const { text, focusedSnap } = await this.extractCurrentTweetText(cleanUser)
+          if (!snapUrl) {
+            const navTabs = parseTabsList(await this.callTool('browser_list_tabs', {}))
+            const activeNavTab = navTabs.find((t) => t.controlled) || navTabs[0]
+            if (activeNavTab?.url && !String(activeNavTab.url).includes(`/status/${tweetId}`)) {
+              continue
+            }
+          }
           if (isReplyOrThreadContinuation(focusedSnap, cleanUser, tweetId)) {
             continue
           }
@@ -820,7 +850,9 @@ export class DshBrowserToolAdapter {
 
     if (mainSnap) {
       const items = parseSnapshotItems(mainSnap)
-      const showOriginalBtn = items.find(
+      const firstAnalyticsIdx = items.findIndex((i) => i.href && /\/status\/\d+\/analytics/i.test(i.href))
+      const mainTweetItems = firstAnalyticsIdx > 0 ? items.slice(0, firstAnalyticsIdx) : items
+      const showOriginalBtn = mainTweetItems.find(
         (item) =>
           !item.disabled &&
           (item.role === 'button' || item.role === 'link') &&
