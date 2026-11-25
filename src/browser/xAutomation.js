@@ -370,31 +370,76 @@ export class XAutomationRunner {
     if (this.isStopped()) return
 
     // 拟人化“边刷边看”：只在 Home 的 For You 和 Following 各刷约 10 条，看到一条即校验一条
-    if (this.browser && typeof this.browser.browseHomeFeeds === 'function') {
+    if (!this.browser) {
+      activityLogger.append({
+        type: 'SYSTEM',
+        action: '浏览器适配器未就绪，跳过本轮巡检',
+        detail: '请确认 dsh-browser-x 已连接并启用'
+      })
+      return
+    }
+    if (typeof this.browser.browseHomeFeeds === 'function') {
       const stats = { scanned: 0, skippedOwn: 0, skippedDone: 0, checked: 0, promoted: 0, interacted: 0 }
+      activityLogger.append({
+        type: 'SYSTEM',
+        action: '开始本轮首页巡检（For you / Following）',
+        detail: '逐条扫描并实时比对平台推广池'
+      })
       await this.browser.browseHomeFeeds(10, async (t) => {
         if (this.isStopped()) return false
         stats.scanned++
+        const authorTag = t.authorUsername ? `@${t.authorUsername}` : (t.authorXId || '未知作者')
         if (this.isOwnPost(t)) {
           stats.skippedOwn++
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `扫描 ${authorTag} / ${t.tweetId}：自己推文，跳过`
+          })
           return false
         }
         // 本地预先去重：若该推文所有已启用的动作都在本地记录已完成，直接跳过连接口都不请求
         if (this.buildPlannedActions(t.tweetId).length === 0) {
           stats.skippedDone++
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `扫描 ${authorTag} / ${t.tweetId}：本地已去重，跳过`
+          })
           return false
         }
 
         stats.checked++
         const checkRes = await this.client.checkSinglePost(t.tweetId, t.authorXId)
         const item = checkRes?.item
-        if (!item || !item.is_promoted || item.author_points <= 0) {
+        if (!item || !item.is_promoted) {
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `比对 ${authorTag} / ${t.tweetId}：未在平台推广池`,
+            api: 'POST /plugin/posts/check-single',
+            status: 200
+          })
+          return false
+        }
+        if (item.author_points <= 0) {
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `比对 ${authorTag} / ${t.tweetId}：作者积分不足 (${item.author_points})，跳过`,
+            api: 'POST /plugin/posts/check-single',
+            status: 200
+          })
           return false
         }
         stats.promoted++
         if (Array.isArray(item.completed_actions) && item.completed_actions.length > 0) {
           this.recordInteracted(t.tweetId, item.completed_actions)
         }
+        const planned = this.buildPlannedActions(t.tweetId, item.completed_actions, item.allowed_actions)
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `命中推广 ${authorTag} / ${t.tweetId}`,
+          api: 'POST /plugin/posts/check-single',
+          status: 200,
+          detail: planned.length > 0 ? `计划动作: ${planned.join(',')}` : '平台/本地动作均已完成，跳过'
+        })
 
         const did = await this.handleCandidatePost({
           ...item,
