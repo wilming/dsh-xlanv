@@ -674,6 +674,7 @@ export class DshBrowserToolAdapter {
           if (!m) continue
           const authorUsername = m[1]
           const tweetId = m[2]
+          if (authorUsername.toLowerCase() === 'i') continue
           if (seenGlobal.has(tweetId)) continue
           seenGlobal.add(tweetId)
           feedCount++

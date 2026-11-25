@@ -424,8 +424,9 @@ export class XAutomationRunner {
           activityLogger.append({
             type: 'SYSTEM',
             action: `比对 ${authorTag} / ${t.tweetId}：未在平台推广池`,
-            api: 'POST /plugin/posts/check-single',
-            status: 200
+            api: 'GET /plugin/posts/check',
+            status: 200,
+            detail: `tweet_id=${t.tweetId} | is_promoted=${Boolean(item?.is_promoted)}`
           })
           return false
         }
@@ -433,7 +434,7 @@ export class XAutomationRunner {
           activityLogger.append({
             type: 'SYSTEM',
             action: `比对 ${authorTag} / ${t.tweetId}：作者积分不足 (${item.author_points})，跳过`,
-            api: 'POST /plugin/posts/check-single',
+            api: 'GET /plugin/posts/check',
             status: 200
           })
           return false
@@ -446,7 +447,7 @@ export class XAutomationRunner {
         activityLogger.append({
           type: 'SYSTEM',
           action: `命中推广 ${authorTag} / ${t.tweetId}`,
-          api: 'POST /plugin/posts/check-single',
+          api: 'GET /plugin/posts/check',
           status: 200,
           detail: planned.length > 0 ? `计划动作: ${planned.join(',')}` : '平台/本地动作均已完成，跳过'
         })
