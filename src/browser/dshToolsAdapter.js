@@ -1058,10 +1058,12 @@ export class DshBrowserToolAdapter {
 
       let inputBox = null
       let currentItems = []
+      let replyOpenedAt = 0
 
       if (replyTrigger) {
         await humanPause(1200, 2200)
         await this.callTool('browser_click', { index: replyTrigger.index })
+        replyOpenedAt = Date.now()
         await humanPause(1500, 2600)
         try {
           const dialogSnap = await this.callTool('browser_snapshot', { region: '[role="dialog"]' })
@@ -1081,6 +1083,7 @@ export class DshBrowserToolAdapter {
       // 若弹窗方式未找到输入框，兜底查找 main 区域内联回复框
       if (!inputBox) {
         const mainSnap = await this.callTool('browser_snapshot', { region: 'main' })
+        if (!replyOpenedAt) replyOpenedAt = Date.now()
         currentItems = parseSnapshotItems(mainSnap)
         inputBox = currentItems.find(
           (item) =>
@@ -1106,12 +1109,19 @@ export class DshBrowserToolAdapter {
           }
         }
 
+        await humanPause(2500, 4500)
         await this.callTool('browser_type', {
           index: inputBox.index,
           text: replyText,
           replace: false
         })
-        await humanPause(1000, 1800)
+
+        // 防止触发 X 的 fast reply spam 风控：从打开评论框到点击发送总用时不少于 30 秒（随机 32~42 秒）
+        const minReplyDurationMs = randomInt(32000, 42000)
+        const elapsedMs = Date.now() - replyOpenedAt
+        if (elapsedMs < minReplyDurationMs) {
+          await sleep(minReplyDurationMs - elapsedMs)
+        }
 
         const findSubmit = (list) =>
           list.find(
@@ -1121,18 +1131,19 @@ export class DshBrowserToolAdapter {
               /^(Reply|Post|回复|发帖)$/i.test(item.name.trim())
           )
 
-        let submitBtn = findSubmit(currentItems)
-        if (!submitBtn) {
-          try {
-            const dialogSnap = await this.callTool('browser_snapshot', { region: '[role="dialog"]' })
-            submitBtn = findSubmit(parseSnapshotItems(dialogSnap))
-          } catch {
-            // 忽略
-          }
+        let submitBtn = null
+        try {
+          const dialogSnap = await this.callTool('browser_snapshot', { region: '[role="dialog"]' })
+          submitBtn = findSubmit(parseSnapshotItems(dialogSnap))
+        } catch {
+          // 忽略
         }
         if (!submitBtn) {
           const afterTypeSnap = await this.callTool('browser_snapshot', { delta: true })
           submitBtn = findSubmit(parseSnapshotItems(afterTypeSnap))
+        }
+        if (!submitBtn) {
+          submitBtn = findSubmit(currentItems)
         }
 
         if (submitBtn) {
