@@ -966,6 +966,10 @@ export class DshBrowserToolAdapter {
         baseItems = await getFocusedItems()
       }
 
+      let replyTweetId = ''
+      const executedActions = []
+      const alreadyDoneOnPage = []
+
     if (actions.includes('RETWEET')) {
       const alreadyReposted = baseItems.some(
         (item) =>
