@@ -4,6 +4,159 @@
 
 ---
 
+## 系统架构图
+
+```mermaid
+flowchart LR
+  subgraph WIN["Windows 本机环境"]
+    CHROME["Chrome 浏览器 (登录 x.com)"]
+    EXT["Chrome 扩展: dsh-browser-x-extension"]
+    subgraph DSH["DeepSeek Harness (DSH) 桌面客户端"]
+      BRIDGE["dsh-browser-x 桌面端桥接插件"]
+      XLANV["dsh-xlanv 互助引擎 & 控制台 (/xlanv)"]
+      LLM["DeepSeek LLM 拟人短评生成"]
+      STORE["本地配置与缓存 (~/.dsh/xlanv/)"]
+    end
+  end
+
+  XCOM["X (https://x.com)"]
+  BACKEND["XLANV 平台后端 (https://xlanv.net/api/v1)"]
+
+  CHROME <-->|"DOM 读取 / 点击 / 滚屏"| EXT
+  EXT <-->|"本地 WebSocket 桥接"| BRIDGE
+  BRIDGE <-->|"browser_* 工具与互斥锁调度"| XLANV
+  XLANV <-->|"去 AI 味短评生成"| LLM
+  XLANV <-->|"config / promoted_posts / logs"| STORE
+  CHROME <-->|"真实登录态访问"| XCOM
+  XLANV <-->|"X-Api-Secret 鉴权: 推广校验 / 积分结算"| BACKEND
+```
+
+---
+
+## 安装与使用总流程图（11 步）
+
+```mermaid
+flowchart TD
+  S1["1. 准备 Windows 电脑"] --> S2["2. 安装 Chrome 浏览器并登录 X"]
+  S2 --> S3["3. 安装 Chrome 扩展 dsh-browser-x-extension"]
+  S3 --> S4["4. 下载并安装 DeepSeek Harness (DSH) 客户端"]
+  S4 --> S5["5. 登录 DeepSeek，先安装 dsh-browser-x 插件"]
+  S5 --> S6["6. 再安装 dsh-xlanv 插件 (GitHub)"]
+  S6 --> S7["7. 系统右下角托盘完全退出 DSH 后重启"]
+  S7 --> S8["8. 前往 https://xlanv.net 注册并绑定 X 账号"]
+  S8 --> S9["9. 在 xlanv.net 后台复制 32 位 api_secret 密钥"]
+  S9 --> S10["10. 重启后的 DSH 左下角打开 XLANV 控制台"]
+  S10 --> S11["11. 配置密钥、互助动作、帖子推广并开启定时巡检"]
+```
+
+---
+
+## Windows 端从零安装与配置图文指南
+
+> 完整图文教程另存一份在 [docs/SETUP_GUIDE.md](./docs/SETUP_GUIDE.md)（下方与 `README` 同步展示）。
+
+### 第 1 步：准备一台 Windows 电脑
+- 建议 **Windows 10 / Windows 11**（64 位），确保可正常开启本地代理访问 `https://x.com` 与 GitHub。
+
+### 第 2 步：安装 Chrome 浏览器并登录 X
+- 下载并安装最新版 **Google Chrome**（建议版本 `>= 116`）。
+- 在 Chrome 中打开 `https://x.com`，手动登录你的 X 账号（建议保持常用浏览记录与完整登录 Cookie）。
+
+### 第 3 步：安装 Chrome 浏览器扩展（`dsh-browser-x-extension`）
+- 打开 Chrome 应用商店安装扩展：
+  **[https://chromewebstore.google.com/detail/dsh-browser-x-extension/mbkfinpobimaaoaihdbopehapbgfcfnj](https://chromewebstore.google.com/detail/dsh-browser-x-extension/mbkfinpobimaaoaihdbopehapbgfcfnj)**
+- 点击 **「添加至 Chrome」** 完成安装。
+- 若浏览器有多个窗口，可在 Chrome 侧边栏打开 **「dsh 浏览器X扩展」**；如提示连接被其他窗口占用，点击 **`Take it back`** 即可把控制权切回当前窗口：
+
+  ![Chrome 扩展侧边栏接管状态](./docs/images/15-chrome-extension-panel.png)
+
+### 第 4 步：下载 DeepSeek Harness (DSH) 客户端
+- 下载并安装 Windows 版 **DeepSeek Harness (DSH)** 桌面客户端。
+
+### 第 5 步：登录 DeepSeek，先安装 `dsh-browser-x` 插件
+1. 打开 DSH 客户端并登录你的 DeepSeek 账号。
+2. 点击左侧 **「插件」** → 点击右上角 **「+ 添加插件」**：
+
+   ![DSH 插件页点击添加插件](./docs/images/01-dsh-add-plugin.png)
+
+3. 在弹窗中输入 **`dsh-browser-x`**，点击 **「安装」**：
+
+   ![输入 dsh-browser-x 安装](./docs/images/02-install-dsh-browser-x.png)
+
+### 第 6 步：再安装 `https://github.com/wilming/dsh-xlanv` 插件
+1. 再次点击右上角 **「+ 添加插件」**，输入 GitHub 仓库地址：
+   ```text
+   https://github.com/wilming/dsh-xlanv
+   ```
+   然后点击 **「安装」**：
+
+   ![输入 GitHub 地址安装 dsh-xlanv](./docs/images/03-install-dsh-xlanv.png)
+
+2. 等待 Git 仓库拉取与依赖安装完成：
+
+   ![插件安装中](./docs/images/04-installing-dsh-xlanv.png)
+
+3. 安装完成后点击 **「立即启用」**：
+
+   ![安装完成点击立即启用](./docs/images/05-enable-dsh-xlanv.png)
+
+4. 在 **「已安装插件」** 列表中确认 `dsh-browser-x` 与 `dsh-xlanv` 两个插件的开关均处于开启状态：
+
+   ![确认两个插件均已启用](./docs/images/06-plugins-enabled-list.png)
+
+### 第 7 步：电脑右下角托盘退出 DSH 客户端然后重启
+- 右键点击 Windows 桌面**右下角系统托盘**中的 DSH 图标 → 选择 **「退出」**（彻底关闭后台进程）。
+- 重新打开 DSH 客户端，使浏览器桥接与注入脚本完整生效。
+
+### 第 8 步：去 `https://xlanv.net` 注册账号
+- 浏览器访问 **[https://xlanv.net](https://xlanv.net)**，使用邮箱验证码注册并登录账号（新用户默认赠送初始积分）。
+- 在个人中心绑定你的 X 用户名（无需带 `@`）。
+
+### 第 9 步：在 `https://xlanv.net` 后台复制密钥（`api_secret`）
+- 在 xlanv.net 后台的 **「X 账号绑定与插件密钥」** 处，复制生成的 32 位 **`api_secret`** 密钥备用。
+
+### 第 10 步：重启后的 DSH 左下角打开 XLANV 控制台
+1. 重启 DSH 后，在主界面**左下角**会出现深蓝色的 **「XLANV 控制台」** 悬浮按钮：
+
+   ![DSH 左下角 XLANV 控制台按钮](./docs/images/07-dsh-xlanv-fab.png)
+
+2. 点击 **「XLANV 控制台」**，右侧弹出控制抽屉，顶部包含 3 个核心标签页：**「基础设置 & Prompt」**、**「帖子推广管理」**、**「实时运行日志」**：
+
+   ![XLANV 控制台三个核心标签页](./docs/images/08-xlanv-console-tabs.png)
+
+### 第 11 步：根据图示进行配置、上传推广帖子并开启定时巡检
+1. **填入 `api_secret` 密钥**：
+   在「基础设置 & Prompt」→「平台密钥 (api_secret)」中粘贴第 9 步复制的 32 位密钥，可按需填写自定义互动 Prompt 与选择运行托管模式（支持全自动或 DSH 右下角弹窗倒计时半自动确认）：
+
+   ![填入平台密钥 api_secret](./docs/images/09-config-api-secret.png)
+
+2. **配置时段、频率与互助动作并保存**：
+   设置每日运行时段（如 `0~24` 点）、互动休息间隔、视口停留时长、轮询间隔，并勾选你要参与的互助动作（转发 `+3 分` / 去 AI 味拟人评论 `+2 分` / 点赞 `+1 分`），最后点击左下角 **「保存并立即生效」**（顶部徽标变为「引擎运行中」「浏览器工具已就绪」并显示当前积分）：
+
+   ![配置自动运行时段与频率](./docs/images/11-config-schedule-full.png)
+
+   ![勾选互动动作开关并保存生效](./docs/images/10-config-actions-save.png)
+
+3. **抓取个人主页帖子并配置推广策略**：
+   切换到 **「帖子推广管理」** 标签页，先点击右上角 **「刷新并抓取主页前 10 条帖子」**（确保 Chrome 已登录你的 X 账号）：
+
+   ![刷新并抓取主页前 10 条帖子](./docs/images/12-posts-refresh.png)
+
+   可根据需要配置「默认推广策略」（是否新帖自动上传推广、默认推广项目及默认目标评论数）：
+
+   ![默认推广策略配置](./docs/images/13-posts-default-policy.png)
+
+   在下方「我的帖子列表」中，针对需要推广的主帖勾选转发 / 评论 / 点赞并点击 **「提交上传推广」**，状态变为绿色 **「推广中」** 即可（也可随时更新或暂停）：
+
+   ![提交上传推广帖子](./docs/images/14-posts-promote-submit.png)
+
+4. **在「实时运行日志」观察定时巡检与积分结算**：
+   切换到 **「实时运行日志」**，可实时看到每轮首页巡检的扫描推文、线上推广池比对、`抓取原文`、`拟定评论`、`执行转发/点赞/评论（>=30 秒防风控）` 以及积分入账明细：
+
+   ![实时运行日志与积分结算](./docs/images/16-realtime-logs.png)
+
+---
+
 ## 一、 核心特性
 
 1. **24 小时自动化运行**
