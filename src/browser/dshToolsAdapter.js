@@ -95,8 +95,12 @@ function isReplyOrThreadContinuation(snapshotText = '', cleanUser = '', tweetId 
 function stripDetailNoise(text = '', username = '') {
   const cleanUser = String(username || '').replace(/^@/, '').trim()
   let out = String(text || '').trim()
+  out = out.replace(
+    /^(?:发帖|Post)?\s*(?:X\s*上的\s*[^\n"“]+?[：:]\s*[“"][^"”]+[”"]|[^\n"]*?\s+on X:\s*"[^"]+")\s*(?:对话|Conversation)?\s*/i,
+    ''
+  )
   if (cleanUser) {
-    out = out.replace(new RegExp(`^.{0,80}?@${cleanUser}\\s+`, 'i'), '')
+    out = out.replace(new RegExp(`^.{0,80}?@${cleanUser}\\s*`, 'i'), '')
   } else {
     out = out.replace(/^.{0,80}?@[A-Za-z0-9_]+\s+/, '')
   }
@@ -129,8 +133,10 @@ function extractTweetTextFromDetailSnapshot(snapshotText = '', username = '') {
   const block = extractMainContentFromSnapshot(snapshotText)
   if (!block) return extractTitleQuotedTweetText(snapshotText)
 
-  // 1. 优先匹配 X 详情页无障碍标题格式: Post<Name> on X: "<正文>"
-  const titleQuoteMatch = block.match(/Post[^\n"]*?\s+on X:\s*"([^"]{1,350})"/i)
+  // 1. 优先匹配 X 详情页无障碍标题格式: Post<Name> on X: "<正文>" 或 (发帖)X 上的 <Name>：“<正文>”
+  const titleQuoteMatch =
+    block.match(/Post[^\n"]*?\s+on X:\s*"([^"]{1,350})"/i) ||
+    block.match(/(?:发帖)?X\s*上的\s*[^\n"“]+?[：:]\s*[“"]([^"”]{1,350})[”"]/i)
   if (titleQuoteMatch && titleQuoteMatch[1]) {
     const quoted = unwrapUntrustedText(titleQuoteMatch[1])
     if (quoted && !isPollutedChromeText(quoted)) return quoted
