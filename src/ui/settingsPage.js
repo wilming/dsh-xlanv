@@ -1,5 +1,6 @@
 import { getConfigPath, getPromotedPostsPath, isValidApiSecret, loadConfig, saveConfig } from '../config.js'
 import { activityLogger } from '../storage/activityLogger.js'
+import { getPendingConfirm, resolvePendingConfirm } from './confirmModal.js'
 import {
   actionsArrayToObj,
   actionsObjToArray,
@@ -1061,6 +1062,26 @@ export function registerSettingsRoutes(webServer, { runner, client, onConfigUpda
         return
       }
 
+      if (req.method === 'GET' && pathname === '/xlanv/api/confirm/pending') {
+        sendJson(res, 200, { pending: getPendingConfirm() })
+        return
+      }
+
+      if (req.method === 'POST' && pathname === '/xlanv/api/confirm/resolve') {
+        try {
+          const body = await readJsonBody(req)
+          const ok = resolvePendingConfirm({
+            id: body.id,
+            confirmed: body.confirmed,
+            replyText: body.replyText
+          })
+          sendJson(res, 200, { ok })
+        } catch (err) {
+          sendJson(res, 400, { error: err.message })
+        }
+        return
+      }
+
       sendJson(res, 404, { error: 'Not Found' })
     }
   })
@@ -1114,6 +1135,95 @@ export function buildDshUiInjectScript() {
 
       document.body.appendChild(fab);
       document.body.appendChild(drawer);
+
+      // 半自动确认弹窗：轮询 /xlanv/api/confirm/pending 在 DSH 界面右下角实时弹出确认框
+      var activeConfirmId = null;
+      var confirmTimer = null;
+      function closeConfirmBox() {
+        if (confirmTimer) { clearInterval(confirmTimer); confirmTimer = null; }
+        var old = document.getElementById('dsh-xlanv-confirm-popup');
+        if (old) old.remove();
+        activeConfirmId = null;
+      }
+      function showConfirmBox(p) {
+        closeConfirmBox();
+        activeConfirmId = p.id;
+        var box = document.createElement('div');
+        box.id = 'dsh-xlanv-confirm-popup';
+        box.style.cssText = 'position:fixed;right:20px;bottom:20px;width:360px;max-width:92vw;z-index:100000;background:#ffffff;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 14px 36px rgba(15,23,42,0.22);padding:16px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#0f172a;font-size:13px;';
+        var hd = document.createElement('div');
+        hd.style.cssText = 'font-weight:800;font-size:14px;color:#0284c7;margin-bottom:6px;';
+        hd.textContent = 'XLANV 半自动互动确认 (@' + (p.authorUsername || '') + ')';
+        var meta = document.createElement('div');
+        meta.style.cssText = 'font-size:12px;color:#475569;margin-bottom:8px;';
+        meta.textContent = '推文 ' + p.tweetId + ' | 计划动作: ' + (p.plannedActions || []).join(', ');
+        var preview = document.createElement('div');
+        preview.style.cssText = 'background:#f1f5f9;padding:8px 10px;border-radius:8px;margin-bottom:8px;max-height:68px;overflow:auto;font-size:12px;color:#334155;';
+        preview.textContent = p.postContent || '(无正文预览)';
+        var ta = document.createElement('textarea');
+        ta.rows = 3;
+        ta.value = p.replyText || '';
+        ta.style.cssText = 'width:100%;box-sizing:border-box;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;margin-bottom:8px;font-family:inherit;';
+        if (!p.plannedActions || p.plannedActions.indexOf('REPLY') === -1) ta.style.display = 'none';
+        var cd = document.createElement('div');
+        cd.style.cssText = 'font-size:12px;color:#d97706;font-weight:600;margin-bottom:10px;';
+        var remain = Number(p.remainSeconds || p.timeoutSeconds || 20);
+        cd.textContent = '若无人工干预，' + remain + ' 秒后自动执行...';
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+        var btnSkip = document.createElement('button');
+        btnSkip.type = 'button';
+        btnSkip.textContent = '跳过本条';
+        btnSkip.style.cssText = 'padding:6px 12px;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-size:12px;';
+        var btnOk = document.createElement('button');
+        btnOk.type = 'button';
+        btnOk.textContent = '立即执行';
+        btnOk.style.cssText = 'padding:6px 12px;border:none;background:#0284c7;color:#fff;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;';
+        function sendDecision(confirmed) {
+          var id = p.id;
+          var txt = ta.value;
+          closeConfirmBox();
+          fetch('/xlanv/api/confirm/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id, confirmed: confirmed, replyText: txt })
+          }).catch(function(){});
+        }
+        btnSkip.onclick = function() { sendDecision(false); };
+        btnOk.onclick = function() { sendDecision(true); };
+        confirmTimer = setInterval(function() {
+          remain -= 1;
+          if (remain <= 0) {
+            closeConfirmBox();
+          } else {
+            cd.textContent = '若无人工干预，' + remain + ' 秒后自动执行...';
+          }
+        }, 1000);
+        row.appendChild(btnSkip);
+        row.appendChild(btnOk);
+        box.appendChild(hd);
+        box.appendChild(meta);
+        box.appendChild(preview);
+        box.appendChild(ta);
+        box.appendChild(cd);
+        box.appendChild(row);
+        document.body.appendChild(box);
+      }
+      setInterval(function() {
+        fetch('/xlanv/api/confirm/pending')
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            var p = data && data.pending;
+            if (!p) {
+              if (activeConfirmId) closeConfirmBox();
+              return;
+            }
+            if (p.id !== activeConfirmId) {
+              showConfirmBox(p);
+            }
+          })
+          .catch(function(){});
+      }, 1500);
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', mount);

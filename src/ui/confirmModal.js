@@ -1,6 +1,38 @@
+import { randomUUID } from 'node:crypto'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isValidApiSecret } from '../config.js'
+
+let activePendingConfirm = null
+
+export function getPendingConfirm() {
+  if (!activePendingConfirm) return null
+  const remainSeconds = Math.max(0, Math.ceil((activePendingConfirm.expiresAt - Date.now()) / 1000))
+  return {
+    id: activePendingConfirm.id,
+    tweetId: activePendingConfirm.tweetId,
+    authorUsername: activePendingConfirm.authorUsername,
+    postContent: activePendingConfirm.postContent,
+    plannedActions: activePendingConfirm.plannedActions,
+    replyText: activePendingConfirm.replyText,
+    timeoutSeconds: activePendingConfirm.timeoutSeconds,
+    remainSeconds
+  }
+}
+
+export function resolvePendingConfirm({ id, confirmed, replyText }) {
+  if (!activePendingConfirm || activePendingConfirm.id !== id) {
+    return false
+  }
+  const resolver = activePendingConfirm.resolve
+  const fallbackReply = activePendingConfirm.replyText
+  activePendingConfirm = null
+  resolver({
+    confirmed: Boolean(confirmed),
+    replyText: typeof replyText === 'string' && replyText.trim() ? replyText.trim() : fallbackReply
+  })
+  return true
+}
 
 /**
  * 首次启动或未配置有效 api_secret 时弹框提示用户填写并保存
@@ -218,11 +250,40 @@ export async function confirmBeforeInteract({
     }
   }
 
-  // 无浏览器 DOM 注入能力时的终端倒计时兜底
+  // 通过 DSH Web UI 悬浮倒计时弹窗队列等待人工确认（超时自动执行）
+  const id = randomUUID()
+  const waitSec = Math.max(3, Number(timeoutSeconds || 20))
   console.log(
     `[dsh-xlanv] 待确认互动 @${authorUsername} (${tweetId}) | 动作: ${plannedActions.join(', ')} | 回复: "${replyText}"`
   )
-  console.log(`[dsh-xlanv] ${timeoutSeconds} 秒后若无干预将自动执行...`)
-  await new Promise((r) => setTimeout(r, timeoutSeconds * 1000))
-  return { confirmed: true, replyText }
+  console.log(`[dsh-xlanv] 已推送到 DSH 界面弹窗，${waitSec} 秒后若无干预将自动执行...`)
+
+  return await new Promise((resolve) => {
+    let settled = false
+    const finish = (res) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (activePendingConfirm?.id === id) {
+        activePendingConfirm = null
+      }
+      resolve(res)
+    }
+
+    const timer = setTimeout(() => {
+      finish({ confirmed: true, replyText })
+    }, waitSec * 1000)
+
+    activePendingConfirm = {
+      id,
+      tweetId,
+      authorUsername,
+      postContent: String(postContent || '').slice(0, 180),
+      plannedActions,
+      replyText,
+      timeoutSeconds: waitSec,
+      expiresAt: Date.now() + waitSec * 1000,
+      resolve: finish
+    }
+  })
 }

@@ -263,6 +263,11 @@ export class XAutomationRunner {
 
     // 2. 弹窗倒计时 20 秒确认（半自动模式下人工可干预，超时自动执行）
     if (this.config.mode === 'semi-auto') {
+      activityLogger.append({
+        type: 'SYSTEM',
+        action: `等待半自动确认 @${post.author_username || post.author_x_id} / ${post.tweet_id}`,
+        detail: `请在 DSH 界面右下角弹窗确认（${this.config.confirmTimeoutSeconds || 20} 秒后自动执行）`
+      })
       const confirmRes = await confirmBeforeInteract({
         browser: this.browser,
         tweetId: post.tweet_id,
