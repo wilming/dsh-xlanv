@@ -244,9 +244,19 @@ export class XAutomationRunner {
         })
         if (plannedActions.length === 0) return false
       } else {
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `抓取推文 ${post.tweet_id} 原文成功`,
+          detail: pureText.slice(0, 150)
+        })
         replyText = await generateHumanReply(pureText, this.llm, {
           ...(this.config.humanReply || {}),
           customPrompt: this.config.customPrompt || ''
+        })
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `已为推文 ${post.tweet_id} 拟定评论内容`,
+          detail: replyText
         })
       }
     }

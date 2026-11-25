@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
+import { activityLogger } from '../storage/activityLogger.js'
 
 const browserLockContext = new AsyncLocalStorage()
 
@@ -1012,6 +1013,10 @@ export class DshBrowserToolAdapter {
             await this.callTool('browser_click', { index: confirmRepost.index })
             await humanPause(1800, 3200)
             executedActions.push('RETWEET')
+            activityLogger.append({
+              type: 'INTERACT',
+              action: `执行转发推文 ${tweetId} 成功`
+            })
           } else {
             const menuShowsAlreadyReposted = menuItems.some((item) =>
               /Undo\s*repost|Undo\s*retweet|取消转帖|取消转发/i.test(item.name)
@@ -1023,6 +1028,10 @@ export class DshBrowserToolAdapter {
                 '[dsh-xlanv] 未匹配到转发确认菜单项，候选菜单元素:',
                 menuItems.map((i) => `${i.role}:"${i.name}"`).join(' | ')
               )
+              activityLogger.append({
+                type: 'SYSTEM',
+                action: `推文 ${tweetId} 未匹配到转发确认菜单，跳过转发`
+              })
             }
             // 关闭弹出菜单遮罩，防止阻塞后续点赞与评论
             try {
@@ -1032,6 +1041,11 @@ export class DshBrowserToolAdapter {
               // 忽略
             }
           }
+        } else {
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `推文 ${tweetId} 未找到转发按钮，跳过转发`
+          })
         }
       }
     }
@@ -1058,6 +1072,15 @@ export class DshBrowserToolAdapter {
           await this.callTool('browser_click', { index: likeBtn.index })
           await humanPause(1500, 2800)
           executedActions.push('LIKE')
+          activityLogger.append({
+            type: 'INTERACT',
+            action: `执行点赞推文 ${tweetId} 成功`
+          })
+        } else {
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `推文 ${tweetId} 未找到点赞按钮，跳过点赞`
+          })
         }
       }
     }
@@ -1111,6 +1134,11 @@ export class DshBrowserToolAdapter {
       }
 
       if (inputBox) {
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `已打开推文 ${tweetId} 评论框（防风控等待 ≥30 秒）`,
+          detail: `拟评论: ${replyText}`
+        })
         // 用 main 区域采集提交前所有已有的 status ID，避免把下方旧评论误当成新回复
         let preStatusIds = new Set([String(tweetId)])
         try {
@@ -1188,8 +1216,28 @@ export class DshBrowserToolAdapter {
 
           if (replyTweetId) {
             executedActions.push('REPLY')
+            activityLogger.append({
+              type: 'INTERACT',
+              action: `发送评论推文 ${tweetId} 成功（耗时 ${Math.round((Date.now() - replyOpenedAt) / 1000)} 秒）`,
+              detail: `新评论 ID: ${replyTweetId} | 内容: ${replyText}`
+            })
+          } else {
+            activityLogger.append({
+              type: 'SYSTEM',
+              action: `推文 ${tweetId} 已点击发送评论，但未捕获新评论 ID`
+            })
           }
+        } else {
+          activityLogger.append({
+            type: 'SYSTEM',
+            action: `推文 ${tweetId} 未找到评论发送按钮，跳过评论`
+          })
         }
+      } else {
+        activityLogger.append({
+          type: 'SYSTEM',
+          action: `推文 ${tweetId} 未找到评论输入框，跳过评论`
+        })
       }
     }
 
