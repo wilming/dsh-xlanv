@@ -875,24 +875,27 @@ export class DshBrowserToolAdapter {
       }
     }
 
-    let bestText = mainSnap ? extractTweetTextFromDetailSnapshot(mainSnap, username) : ''
-
-    if (!bestText) {
-      for (const sel of [
-        'article[data-testid="tweet"] [data-testid="tweetText"]',
-        'article[data-testid="tweet"] div[lang]'
-      ]) {
-        try {
-          const raw = await this.callTool('browser_get_text', { selector: sel })
-          const cleaned = stripDetailNoise(unwrapUntrustedText(raw), username)
-          if (cleaned && !isPollutedChromeText(cleaned)) {
-            bestText = cleaned
-            break
-          }
-        } catch {
-          // 忽略未命中
+    // 1. 优先用精准 DOM 选择器只读取主帖正文节点（天然隔离作者名、时间戳、查看数、引用帖与评论区）
+    let bestText = ''
+    for (const sel of [
+      'article[data-testid="tweet"] [data-testid="tweetText"]',
+      'article[data-testid="tweet"] div[lang]'
+    ]) {
+      try {
+        const raw = await this.callTool('browser_get_text', { selector: sel })
+        const cleaned = unwrapUntrustedText(raw)
+        if (cleaned && !isPollutedChromeText(cleaned)) {
+          bestText = cleaned
+          break
         }
+      } catch {
+        // 忽略未命中
       }
+    }
+
+    // 2. 若精准 DOM 节点未取到，再退回从 mainSnap 结构化提取兜底
+    if (!bestText && mainSnap) {
+      bestText = extractTweetTextFromDetailSnapshot(mainSnap, username)
     }
 
     return { text: bestText.slice(0, 350), focusedSnap: mainSnap }
