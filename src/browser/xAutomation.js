@@ -371,26 +371,47 @@ export class XAutomationRunner {
 
     // 拟人化“边刷边看”：只在 Home 的 For You 和 Following 各刷约 10 条，看到一条即校验一条
     if (this.browser && typeof this.browser.browseHomeFeeds === 'function') {
+      const stats = { scanned: 0, skippedOwn: 0, skippedDone: 0, checked: 0, promoted: 0, interacted: 0 }
       await this.browser.browseHomeFeeds(10, async (t) => {
         if (this.isStopped()) return false
-        if (this.isOwnPost(t)) return false
+        stats.scanned++
+        if (this.isOwnPost(t)) {
+          stats.skippedOwn++
+          return false
+        }
         // 本地预先去重：若该推文所有已启用的动作都在本地记录已完成，直接跳过连接口都不请求
-        if (this.buildPlannedActions(t.tweetId).length === 0) return false
+        if (this.buildPlannedActions(t.tweetId).length === 0) {
+          stats.skippedDone++
+          return false
+        }
 
+        stats.checked++
         const checkRes = await this.client.checkSinglePost(t.tweetId, t.authorXId)
         const item = checkRes?.item
         if (!item || !item.is_promoted || item.author_points <= 0) {
           return false
         }
+        stats.promoted++
         if (Array.isArray(item.completed_actions) && item.completed_actions.length > 0) {
           this.recordInteracted(t.tweetId, item.completed_actions)
         }
 
-        return await this.handleCandidatePost({
+        const did = await this.handleCandidatePost({
           ...item,
           author_username: t.authorUsername || item.author_x_id,
           content: t.content || ''
         })
+        if (did) stats.interacted++
+        return did
+      })
+
+      activityLogger.append({
+        type: 'SYSTEM',
+        action:
+          stats.scanned === 0
+            ? '本轮首页巡检未扫描到推文（请确认浏览器已登录 X 且处于主页）'
+            : `本轮巡检完成：扫描 ${stats.scanned} 条，校验线上 ${stats.checked} 条，命中推广 ${stats.promoted} 条，执行互动 ${stats.interacted} 条`,
+        detail: `跳过自己 ${stats.skippedOwn} 条 | 本地已去重 ${stats.skippedDone} 条`
       })
     } else if (this.browser && typeof this.browser.scanTimelineTweets === 'function') {
       const timelineTweets = await this.browser.scanTimelineTweets(10)
@@ -438,6 +459,11 @@ export class XAutomationRunner {
         await this.runOnce()
       } catch (err) {
         console.error('[dsh-xlanv] 本轮巡检异常:', err.message)
+        activityLogger.append({
+          type: 'API_ERROR',
+          action: '本轮巡检异常中断',
+          detail: err.message
+        })
       }
       const pollMs = Math.max(60, Number(this.config.loopPollIntervalSeconds || 60)) * 1000
       await sleep(pollMs)

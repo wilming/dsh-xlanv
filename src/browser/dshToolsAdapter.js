@@ -697,9 +697,23 @@ export class DshBrowserToolAdapter {
         try {
           await humanPause(2200, 4200)
           await this.callTool('browser_scroll', { direction: 'down', amount: randomInt(450, 780) })
-          await humanPause(3000, 5500)
-          const deltaSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
-          await processVisibleItems(parseSnapshotItems(deltaSnap))
+          await humanPause(2800, 4800)
+          let nextItems = []
+          try {
+            const deltaSnap = await this.callTool('browser_snapshot', { region: 'main', delta: true })
+            nextItems = parseSnapshotItems(deltaSnap)
+          } catch {
+            nextItems = []
+          }
+          const hasUnseenStatus = nextItems.some((item) => {
+            const m = item.href && item.href.match(statusRe)
+            return m && !seenGlobal.has(m[2])
+          })
+          if (!hasUnseenStatus) {
+            const fullSnap = await this.callTool('browser_snapshot', { region: 'main' })
+            nextItems = parseSnapshotItems(fullSnap)
+          }
+          await processVisibleItems(nextItems)
         } catch {
           break
         }
